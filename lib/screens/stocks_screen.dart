@@ -71,6 +71,19 @@ class _StocksScreenState extends State<StocksScreen> {
     }
   }
 
+  Future<void> _removeSymbol(Stock s) async {
+    setState(() => _addMsg = null);
+    try {
+      final j = await Api.delete('/api/watchlist', query: {'symbol': s.symbol});
+      if (mounted) {
+        setState(() => _addMsg = '🗑 已移除 ${s.symbol}');
+        await _load();
+      }
+    } catch (e) {
+      if (mounted) setState(() => _addMsg = '✗ 刪除失敗: $e');
+    }
+  }
+
   @override
   void dispose() {
     _sym.dispose();
@@ -124,7 +137,7 @@ class _StocksScreenState extends State<StocksScreen> {
                   adding: _adding,
                   msg: _addMsg,
                 );
-                return _StockRow(stock: _stocks[i - 1]);
+                return _StockRow(stock: _stocks[i - 1], onDelete: () => _removeSymbol(_stocks[i - 1]));
               },
             ),
     );
@@ -283,7 +296,8 @@ class _LoginGateState extends State<_LoginGate> {
 
 class _StockRow extends StatelessWidget {
   final Stock stock;
-  const _StockRow({required this.stock});
+  final VoidCallback? onDelete;
+  const _StockRow({required this.stock, this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -295,9 +309,22 @@ class _StockRow extends StatelessWidget {
           style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
       subtitle: Text('${stock.symbol}  \$${_fmt(stock.price)}',
           style: const TextStyle(color: Colors.white54)),
-      trailing: Text(
-        '${up ? '+' : ''}${_fmt(stock.chg)}%',
-        style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 16),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${up ? '+' : ''}${_fmt(stock.chg)}%',
+            style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          if (onDelete != null) ...[
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20, color: Colors.white38),
+              onPressed: onDelete,
+              tooltip: '移除 ${stock.symbol}',
+            ),
+          ],
+        ],
       ),
     );
   }

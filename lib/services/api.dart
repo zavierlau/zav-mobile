@@ -27,6 +27,15 @@ class Api {
     if (r.statusCode != 200 && r.statusCode != 201) throw Exception('HTTP ${r.statusCode}: ${r.body}');
     return jsonDecode(r.body);
   }
+
+  static Future<dynamic> delete(String path, {Map<String, String>? query}) async {
+    final uri = query != null && query.isNotEmpty
+        ? _u(path).replace(queryParameters: query)
+        : _u(path);
+    final r = await http.delete(uri, headers: _headers).timeout(const Duration(seconds: 15));
+    if (r.statusCode != 200) throw Exception('HTTP ${r.statusCode}: ${r.body}');
+    return jsonDecode(r.body);
+  }
 }
 
 // ---- models (shaped to the real dashboard API) ----
