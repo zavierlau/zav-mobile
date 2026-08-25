@@ -441,11 +441,16 @@ class _K8sScreenState extends State<K8sScreen> {
         ),
       );
     }
-    // G-Brain 動態背景光環 + 浮動粒子，置於最底層；資源內容疊喺上面。
+    // G-Brain 動態背景光環 + 浮動粒子。放 content 上面做半透明浮層，
+    // 確保粒子/光環一定可見（唔會被不透明卡片遮住）。
     return Stack(
       children: [
-        Positioned.fill(child: _HUDOrbBackground(kind: _type.apiName)),
         content,
+        Positioned.fill(
+          child: IgnorePointer(
+            child: _HUDOrbBackground(kind: _type.apiName),
+          ),
+        ),
       ],
     );
   }
@@ -1929,12 +1934,12 @@ class _HUDOrbBackgroundState extends State<_HUDOrbBackground>
     _particles = List.generate(48, (_) => _OrbParticle(
           x: rnd.nextDouble(),
           y: rnd.nextDouble(),
-          size: 0.8 + rnd.nextDouble() * 2.6,
+          size: 1.6 + rnd.nextDouble() * 3.4,
           speed: 0.35 + rnd.nextDouble() * 1.4,
           phase: rnd.nextDouble() * 2 * math.pi,
-          opacity: 0.25 + rnd.nextDouble() * 0.55,
-          drift: Offset((rnd.nextDouble() - 0.5) * 22,
-              (rnd.nextDouble() - 0.5) * 18),
+          opacity: 0.45 + rnd.nextDouble() * 0.5,
+          drift: Offset((rnd.nextDouble() - 0.5) * 28,
+              (rnd.nextDouble() - 0.5) * 22),
           purple: rnd.nextBool(),
         ));
   }
