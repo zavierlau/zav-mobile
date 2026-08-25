@@ -14,6 +14,9 @@ class _StocksScreenState extends State<StocksScreen> {
   bool _loading = false;
   String? _error;
   late bool _hadToken;
+  final TextEditingController _sym = TextEditingController();
+  String? _addMsg;
+  bool _adding = false;
 
   @override
   void initState() {
@@ -46,6 +49,32 @@ class _StocksScreenState extends State<StocksScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _addSymbol() async {
+    final sym = _sym.text.trim().toUpperCase();
+    if (sym.isEmpty) return;
+    setState(() { _adding = true; _addMsg = null; });
+    try {
+      final j = await Api.post('/api/watchlist', {'symbol': sym});
+      if (mounted) {
+        setState(() {
+          _addMsg = '✓ 已加 ${(j is Map && j['added'] != null) ? j['added'] : sym}';
+          _sym.clear();
+        });
+        await _load();
+      }
+    } catch (e) {
+      if (mounted) setState(() => _addMsg = '✗ 加股失敗：$e');
+    } finally {
+      if (mounted) setState(() => _adding = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _sym.dispose();
+    super.dispose();
   }
 
   // Tolerate: [{...}] or {"stocks":[{...}]} or {"data":[{...}]}.
@@ -86,10 +115,73 @@ class _StocksScreenState extends State<StocksScreen> {
             )
           : ListView.separated(
               physics: const AlwaysScrollableScrollPhysics(),
-              itemCount: _stocks.length,
+              itemCount: _stocks.length + 1,
               separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFF1C1F27)),
-              itemBuilder: (context, i) => _StockRow(stock: _stocks[i]),
+              itemBuilder: (context, i) {
+                if (i == 0) return _AddTickerBar(
+                  controller: _sym,
+                  onAdd: _addSymbol,
+                  adding: _adding,
+                  msg: _addMsg,
+                );
+                return _StockRow(stock: _stocks[i - 1]);
+              },
             ),
+    );
+  }
+}
+
+class _AddTickerBar extends StatelessWidget {
+  final TextEditingController controller;
+  final VoidCallback? onAdd;
+  final bool adding;
+  final String? msg;
+  const _AddTickerBar({required this.controller, this.onAdd, required this.adding, this.msg});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: const InputDecoration(
+                    hintText: '加股 (e.g. NVDA, AMD)',
+                    hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    filled: true,
+                    fillColor: Color(0xFF151820),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(10)), borderSide: BorderSide(color: Color(0xFF2A2F3A))),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(10)), borderSide: BorderSide(color: Color(0xFF2A2F3A))),
+                  ),
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                  onSubmitted: (_) => onAdd?.call(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: adding ? null : onAdd,
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF7C6CF0)),
+                child: adding
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('➕ 加股'),
+              ),
+            ],
+          ),
+          if (msg != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(msg!, style: TextStyle(fontSize: 12, color: msg!.startsWith('✓') ? Colors.greenAccent : Colors.redAccent)),
+            ),
+        ],
+      ),
     );
   }
 }
