@@ -59,17 +59,6 @@ class _StocksScreenState extends State<StocksScreen> {
     if (Api.token.isNotEmpty) _reloadIfTokenJustSet();
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(
-        title: const Text('股票行情'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: '設定',
-            onPressed: () => Navigator.push(
-                context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
-          ),
-        ],
-      ),
       body: Api.token.isEmpty ? const _LoginGate() : _buildBody(),
     );
   }

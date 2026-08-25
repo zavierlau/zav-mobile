@@ -53,7 +53,6 @@ class _LogsScreenState extends State<LogsScreen> {
     if (Api.token.isNotEmpty) _reloadIfTokenJustSet();
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(title: const Text('日誌')),
       body: Api.token.isEmpty
           ? const NoTokenView(title: '需要 Token 先可載入日誌')
           : _buildBody(),

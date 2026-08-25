@@ -172,7 +172,6 @@ class _TokenScreenState extends State<TokenScreen> {
     if (Api.token.isNotEmpty) _reloadIfTokenJustSet();
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(title: const Text('Token')),
       body: Api.token.isEmpty
           ? const NoTokenView(title: '需要 Token 先可載入 Token 用量')
           : _buildBody(),

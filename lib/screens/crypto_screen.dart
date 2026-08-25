@@ -113,7 +113,6 @@ class _CryptoScreenState extends State<CryptoScreen> {
     if (Api.token.isNotEmpty) _reloadIfTokenJustSet();
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(title: const Text('加密貨幣')),
       body: Api.token.isEmpty
           ? const NoTokenView(title: '需要 Token 先可載入加密數據')
           : _buildBody(),

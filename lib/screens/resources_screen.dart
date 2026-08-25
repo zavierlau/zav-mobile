@@ -60,7 +60,6 @@ class _ResourcesScreenState extends State<ResourcesScreen> {
     if (Api.token.isNotEmpty) _reloadIfTokenJustSet();
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(title: const Text('定時任務')),
       body: Api.token.isEmpty
           ? const NoTokenView(title: '需要 Token 先可載入 Cron') 
           : _buildBody(),
