@@ -116,18 +116,18 @@ class _PodTerminalScreenState extends State<PodTerminalScreen> {
       _k8sReady = false;
     });
     try {
-      final channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
-      _channel = channel;
-      _sub = channel.stream.listen(
+      final wsChannel = WebSocketChannel.connect(Uri.parse(_wsUrl));
+      _channel = wsChannel;
+      _sub = wsChannel.stream.listen(
         (raw) => _onData(raw),
         onError: (e) => _onError('WS error: $e'),
         onDone: _onDone,
         cancelOnError: true,
       );
       // 認證（server 要 {type:'auth', token}）
-      channel.sink.add(jsonEncode({'type': 'auth', 'token': Api.token}));
+      wsChannel.sink.add(jsonEncode({'type': 'auth', 'token': Api.token}));
       // 開 kubectl exec
-      channel.sink.add(jsonEncode({
+      wsChannel.sink.add(jsonEncode({
         'type': 'k8s',
         'kind': 'Pods',
         'name': _podName,
