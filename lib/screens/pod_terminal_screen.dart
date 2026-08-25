@@ -56,12 +56,12 @@ class _PodTerminalScreenState extends State<PodTerminalScreen> {
   String get _namespace => widget.namespace;
   String? get _container => widget.container;
 
-  // 由 http://100.126.80.55:3000 → ws://100.126.80.55:4300
+  // 由 http://100.126.80.55:3000 → ws://100.126.80.55:4300/ws
   String get _wsUrl {
     final uri = Uri.tryParse(Api.baseUrl);
     final host = uri?.host.isNotEmpty == true ? uri!.host : 'localhost';
     final scheme = (uri?.scheme == 'https') ? 'wss' : 'ws';
-    return '$scheme://$host:4300';
+    return '$scheme://$host:4300/ws';
   }
 
   @override
@@ -124,8 +124,8 @@ class _PodTerminalScreenState extends State<PodTerminalScreen> {
         onDone: _onDone,
         cancelOnError: true,
       );
-      // 認證
-      channel.sink.add(jsonEncode({'token': Api.token}));
+      // 認證（server 要 {type:'auth', token}）
+      channel.sink.add(jsonEncode({'type': 'auth', 'token': Api.token}));
       // 開 kubectl exec
       channel.sink.add(jsonEncode({
         'type': 'k8s',
