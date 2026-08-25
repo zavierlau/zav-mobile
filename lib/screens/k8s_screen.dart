@@ -839,7 +839,15 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
 
   Future<void> _runExec() async {
     if (!_isPod) return; // 按鈕已禁用；雙重保險
-    if (widget.demo) return; // 示範模式無 terminal-server，唔開 terminal
+    if (widget.demo) {
+      // 示範模式無真 cluster，唔開 terminal —— 明確提示，唔係無聲 return。
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('示範模式：未有 cluster，Exec 需連接真 Kubernetes 先可用。')),
+        );
+      }
+      return;
+    }
     // 全屏互動 Terminal（WS → kubectl exec）
     await Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => PodTerminalScreen(
