@@ -7,6 +7,8 @@ import 'screens/token_screen.dart';
 import 'screens/system_screen.dart';
 import 'screens/jobs_screen.dart';
 import 'screens/alerts_screen.dart';
+import 'screens/command_center_screen.dart';
+import 'screens/k8s_screen.dart';
 import 'services/config.dart';
 
 // ZAV Mobile — kubenav-style mobile app for the ZAV/Hermes dashboard.
@@ -111,6 +113,20 @@ class MoreScreen extends StatelessWidget {
             subtitle: '日誌快照與警報',
             color: const Color(0xFFFFB74D),
             onTap: () => _push(context, const AlertsScreen()),
+          ),
+          _HubTile(
+            icon: Icons.view_in_ar,
+            title: '3D 指揮中心',
+            subtitle: '粒子頭像光球指揮中心',
+            color: const Color(0xFF7C6CF0),
+            onTap: () => _push(context, const CommandCenterScreen()),
+          ),
+          _HubTile(
+            icon: Icons.circle,
+            title: 'Kubernetes',
+            subtitle: 'kubenav 功能（即將推出）',
+            color: const Color(0xFF326CE5),
+            onTap: () => _push(context, const K8sScreen()),
           ),
         ],
       ),
