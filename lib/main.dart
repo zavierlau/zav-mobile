@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'screens/resources_screen.dart';
 import 'screens/stocks_screen.dart';
 import 'screens/logs_screen.dart';
+import 'screens/crypto_screen.dart';
+import 'screens/token_screen.dart';
 import 'services/config.dart';
 
 // ZAV Mobile — kubenav-style mobile app for the ZAV/Hermes dashboard.
-// Bottom navigation across Dashboard / Resources / Logs. Connects to the
+// Bottom navigation across 行情 / 加密 / 資源 / Token / 日誌. Connects to the
 // Hermes dashboard API (host + token configurable in settings).
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,7 +44,9 @@ class _HomeShellState extends State<HomeShell> {
 
   static const _pages = [
     StocksScreen(),
+    CryptoScreen(),
     ResourcesScreen(),
+    TokenScreen(),
     LogsScreen(),
   ];
 
@@ -57,7 +61,9 @@ class _HomeShellState extends State<HomeShell> {
         indicatorColor: const Color(0xFF7C6CF0),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.show_chart), label: '行情'),
+          NavigationDestination(icon: Icon(Icons.currency_bitcoin), label: '加密'),
           NavigationDestination(icon: Icon(Icons.dashboard), label: '資源'),
+          NavigationDestination(icon: Icon(Icons.token), label: 'Token'),
           NavigationDestination(icon: Icon(Icons.terminal), label: '日誌'),
         ],
       ),
