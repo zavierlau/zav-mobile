@@ -53,12 +53,9 @@ class _K8sScreenState extends State<K8sScreen> {
       _error = null;
     });
     if (!_hasConnection) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _disconnected = true;
-        });
-      }
+      // No cluster config yet — auto-load demo data so the UI is immediately
+      // visible (no manual "load demo" tap needed). Shows label "示範".
+      _loadDemo();
       return;
     }
     try {
@@ -118,11 +115,19 @@ class _K8sScreenState extends State<K8sScreen> {
       appBar: AppBar(
         backgroundColor: _kK8sBlue,
         foregroundColor: Colors.white,
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.dns, size: 22),
-            SizedBox(width: 10),
-            Text('Kubernetes', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Icon(Icons.dns, size: 22),
+            const SizedBox(width: 10),
+            const Text('Kubernetes', style: TextStyle(fontWeight: FontWeight.bold)),
+            if (!_hasConnection) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(10)),
+                child: const Text('示範', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+              ),
+            ],
           ],
         ),
         actions: [
