@@ -2,12 +2,19 @@ import 'package:flutter/material.dart';
 import '../services/api.dart';
 import '../services/config.dart';
 
-// K8s brand blue (kubenav-style accent).
-const Color _kK8sBlue = Color(0xFF326CE5);
-const Color _kCardBg = Color(0xFF151820);
-const Color _kGreen = Color(0xFF26A69A);
+// ── Sci-fi HUD 配色（暗黑 + 霓虹青 / 霓虹紫 accent）──────────────────
+const Color _kNeonBg = Color(0xFF05070D); // 深空底
+const Color _kNeonCyan = Color(0xFF00E5FF); // 主要 accent 霓虹青
+const Color _kNeonPurple = Color(0xFFB85CFF); // 次要 accent 霓虹紫
+const Color _kNeonPurple2 = Color(0xFF7C6CF0); // 輔助紫
+const Color _kGlass = Color(0xFF0D1520); // 玻璃半透明卡底
+const Color _kTerminalBg = Color(0xFF04060C); // 終端黑底
+const Color _kGreenTerm = Color(0xFF9BE29B); // k9s 式綠色 terminal 字
+const Color _kCyanTerm = Color(0xFF7DE8FF); // 科幻青色 terminal 字
+const Color _kNeonRed = Color(0xFFFF4D6D); // 失敗
+const Color _kNeonYellow = Color(0xFFFFC44D); // 待定
 
-// kubenav 式 Kubernetes cluster 管理。
+// kubenav 式 Kubernetes cluster 管理（Sci-fi HUD 風格）。
 // 目前未有真 cluster：UI 已準備好資源清單 / 詳情 / logs 概念，資料源透過
 // /api/k8s/resources?type=... 讀取；未能抓到就顯示「未連接 cluster」友善空狀態，
 // 並可前往「連接 Cluster」設定位 或「載入示範資料」預覽 UI。
@@ -99,7 +106,8 @@ class _K8sScreenState extends State<K8sScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: _kCardBg,
+      backgroundColor: _kNeonBg,
+      barrierColor: Colors.black.withOpacity(0.7),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -111,21 +119,64 @@ class _K8sScreenState extends State<K8sScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor: _kNeonBg,
       appBar: AppBar(
-        backgroundColor: _kK8sBlue,
+        backgroundColor: _kNeonBg,
+        elevation: 0,
         foregroundColor: Colors.white,
+        flexibleSpace: _bottomGlowLine(),
         title: Row(
           children: [
-            const Icon(Icons.dns, size: 22),
+            const Icon(Icons.dns, size: 22, color: _kNeonCyan),
             const SizedBox(width: 10),
-            const Text('Kubernetes', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              'KUBERNETES',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                letterSpacing: 2,
+                fontFamily: 'monospace',
+              ),
+            ),
             if (!_hasConnection) ...[
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(10)),
-                child: const Text('示範', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [_kNeonCyan, _kNeonPurple],
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: [
+                    BoxShadow(
+                        color: _kNeonCyan.withOpacity(0.4), blurRadius: 8),
+                  ],
+                ),
+                child: const Text('示範',
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black)),
+              ),
+            ],
+            if (_resources.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _kGlass,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _kNeonCyan.withOpacity(0.4)),
+                ),
+                child: Text(
+                  '${_resources.length}',
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 11,
+                    letterSpacing: 1,
+                    color: _kNeonCyan,
+                  ),
+                ),
               ),
             ],
           ],
@@ -133,16 +184,71 @@ class _K8sScreenState extends State<K8sScreen> {
         actions: [
           IconButton(
             tooltip: '連接 Cluster',
-            icon: const Icon(Icons.cloud_outlined),
+            icon: const Icon(Icons.cloud_outlined, color: _kNeonCyan),
             onPressed: _openConnectSheet,
           ),
         ],
       ),
       body: Column(
         children: [
+          _buildHeaderBar(),
           _buildTypeChips(),
           const SizedBox(height: 4),
           Expanded(child: _buildBody()),
+        ],
+      ),
+    );
+  }
+
+  // 底部一道霓虹漸層微光（AppBar 底部亮線）。
+  Widget _bottomGlowLine() {
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Container(
+        height: 1.5,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [_kNeonCyan, Colors.transparent, _kNeonPurple],
+          ),
+          boxShadow: [BoxShadow(color: _kNeonCyan.withOpacity(0.5), blurRadius: 8)],
+        ),
+      ),
+    );
+  }
+
+  // Header：cyan 微字型 + mono 資源計數，營造 HUD 感。
+  Widget _buildHeaderBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Row(
+        children: [
+          Text(
+            '// ${_type.label.toUpperCase()}',
+            style: TextStyle(
+              color: _kNeonCyan.withOpacity(0.7),
+              fontSize: 11,
+              fontFamily: 'monospace',
+              letterSpacing: 1.5,
+            ),
+          ),
+          const Spacer(),
+          if (_loading)
+            const Text(
+              '▚ SYNCING',
+              style: TextStyle(
+                  color: _kNeonPurple, fontSize: 10, fontFamily: 'monospace',
+                  letterSpacing: 1.5),
+            )
+          else
+            Text(
+              '${_resources.length.toString().padLeft(2, '0')} RESOURCES',
+              style: TextStyle(
+                color: _kNeonPurple.withOpacity(0.8),
+                fontSize: 10,
+                fontFamily: 'monospace',
+                letterSpacing: 1.5,
+              ),
+            ),
         ],
       ),
     );
@@ -159,24 +265,49 @@ class _K8sScreenState extends State<K8sScreen> {
         itemBuilder: (ctx, i) {
           final t = _types[i];
           final selected = t == _type;
-          return ChoiceChip(
-            label: Text(t.label),
-            selected: selected,
-            avatar: Icon(t.icon, size: 16),
-            selectedColor: _kK8sBlue,
-            backgroundColor: _kCardBg,
-            labelStyle: TextStyle(
-              color: selected ? Colors.white : Colors.white70,
-              fontSize: 13,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                          color: _kNeonCyan.withOpacity(0.45),
+                          blurRadius: 10,
+                          spreadRadius: 0.5),
+                    ]
+                  : const [],
             ),
-            side: BorderSide(
-              color: selected ? _kK8sBlue : Colors.white12,
+            child: ChoiceChip(
+              label: Text(
+                t.label,
+                style: TextStyle(
+                  color: selected ? _kNeonCyan : Colors.white60,
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  letterSpacing: 0.5,
+                  fontWeight:
+                      selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+              avatar: Icon(t.icon,
+                  size: 15, color: selected ? _kNeonCyan : Colors.white38),
+              selected: selected,
+              selectedColor: _kGlass,
+              backgroundColor: _kGlass,
+              checkmarkColor: _kNeonCyan,
+              showCheckmark: false,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
+              side: BorderSide(
+                color: selected ? _kNeonCyan : Colors.white12,
+                width: selected ? 1.4 : 1,
+              ),
+              onSelected: (_) {
+                setState(() => _type = t);
+                _load();
+              },
             ),
-            onSelected: (_) {
-              setState(() => _type = t);
-              _load();
-            },
           );
         },
       ),
@@ -186,24 +317,28 @@ class _K8sScreenState extends State<K8sScreen> {
   Widget _buildBody() {
     if (_loading) {
       return const Center(
-        child: CircularProgressIndicator(color: _kK8sBlue),
+        child: CircularProgressIndicator(
+            color: _kNeonCyan, strokeWidth: 2.5),
       );
     }
     if (_disconnected) {
       return RefreshIndicator(
-        color: _kK8sBlue,
+        color: _kNeonCyan,
         onRefresh: _load,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(24),
           children: [
             const SizedBox(height: 48),
-            const Icon(Icons.cloud_off, size: 72, color: _kK8sBlue),
+            const Icon(Icons.cloud_off,
+                size: 72, color: _kNeonCyan),
             const SizedBox(height: 16),
             Text(
               _hasConnection ? '未連接 Cluster 或 API 未準備' : '尚未連接 Cluster',
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                  fontSize: 20, fontWeight: FontWeight.bold,
+                  letterSpacing: 1),
             ),
             const SizedBox(height: 8),
             Text(
@@ -219,24 +354,30 @@ class _K8sScreenState extends State<K8sScreen> {
                 _error!,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                    color: Colors.orangeAccent, fontSize: 12, fontFamily: 'monospace'),
+                    color: _kNeonRed, fontSize: 12, fontFamily: 'monospace'),
               ),
             ],
             const SizedBox(height: 28),
             Center(
               child: FilledButton.icon(
-                style: FilledButton.styleFrom(backgroundColor: _kK8sBlue),
+                style: FilledButton.styleFrom(
+                    backgroundColor: _kNeonCyan,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10))),
                 onPressed: _openConnectSheet,
                 icon: const Icon(Icons.add_link),
-                label: const Text('新增 / 連接 Cluster'),
+                label: const Text('新增 / 連接 Cluster',
+                    style: TextStyle(fontWeight: FontWeight.w700)),
               ),
             ),
             const SizedBox(height: 12),
             Center(
               child: TextButton.icon(
                 onPressed: _loadDemo,
-                icon: const Icon(Icons.preview, color: Colors.white54),
-                label: const Text('載入示範資料預覽', style: TextStyle(color: Colors.white54)),
+                icon: const Icon(Icons.preview, color: _kNeonPurple),
+                label: const Text('載入示範資料預覽',
+                    style: TextStyle(color: _kNeonPurple)),
               ),
             ),
           ],
@@ -245,7 +386,7 @@ class _K8sScreenState extends State<K8sScreen> {
     }
     if (_resources.isEmpty) {
       return RefreshIndicator(
-        color: _kK8sBlue,
+        color: _kNeonCyan,
         onRefresh: _load,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -257,13 +398,13 @@ class _K8sScreenState extends State<K8sScreen> {
       );
     }
     return RefreshIndicator(
-      color: _kK8sBlue,
+      color: _kNeonCyan,
       onRefresh: _load,
       child: ListView.separated(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(12),
         itemCount: _resources.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemBuilder: (ctx, i) => _ResourceCard(
           resource: _resources[i],
           type: _type,
@@ -324,6 +465,34 @@ class K8sResource {
   }
 }
 
+// 由 status string 決定霓虹狀態色 + tooltip（Running 青 / 待定黃 / 失敗紅）。
+(Color, String) _statusHue(String status, bool healthy) {
+  final s = status.toLowerCase();
+  if (s.contains('fail') ||
+      s.contains('error') ||
+      s.contains('crash') ||
+      s.contains('backoff') ||
+      s.contains('terminated') ||
+      s.contains('unschedulable')) {
+    return (_kNeonRed, '失敗');
+  }
+  if (s.contains('pending') ||
+      s.contains('creating') ||
+      s.contains('initializing') ||
+      s.contains('containercreating') ||
+      s.contains('terminating')) {
+    return (_kNeonYellow, '待定');
+  }
+  if (s.contains('running') ||
+      s.contains('ready') ||
+      s.contains('available') ||
+      s.contains('complete') ||
+      s.contains('succeeded')) {
+    return (_kNeonCyan, 'Running / Ready');
+  }
+  return (healthy ? _kNeonCyan : _kNeonYellow, healthy ? 'Running / Ready' : '未知');
+}
+
 class _ResourceCard extends StatelessWidget {
   final K8sResource resource;
   final _ResourceType type;
@@ -338,52 +507,82 @@ class _ResourceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      color: _kCardBg,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => _showDetail(context),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              _StatusDot(healthy: resource.healthy, status: resource.status),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      // 外層：1px 霓虹漸層描邊 + depth glow shadow
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: const LinearGradient(
+          colors: [_kNeonCyan, _kNeonPurple2],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: _kNeonCyan.withOpacity(0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
+            color: _kNeonPurple.withOpacity(0.10),
+            blurRadius: 22,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(1),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(15),
+          child: Material(
+            color: _kGlass,
+            child: InkWell(
+              onTap: () => _showDetail(context),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
                   children: [
-                    Text(
-                      resource.name.isEmpty ? '（未命名）' : resource.name,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 15),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        const Icon(Icons.folder_outlined,
-                            size: 13, color: Colors.white38),
-                        const SizedBox(width: 4),
-                        Text(resource.namespace,
+                    _StatusDot(healthy: resource.healthy, status: resource.status),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            resource.name.isEmpty ? '（未命名）' : resource.name,
                             style: const TextStyle(
-                                fontSize: 13, color: Colors.white60)),
-                      ],
+                                fontWeight: FontWeight.w600, fontSize: 15),
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              const Icon(Icons.folder_outlined,
+                                  size: 13, color: Colors.white38),
+                              const SizedBox(width: 4),
+                              Text(resource.namespace,
+                                  style: const TextStyle(
+                                      fontSize: 13, color: Colors.white60)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            resource.status.isEmpty ? type.label : resource.status,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontFamily: 'monospace',
+                              letterSpacing: 0.3,
+                              color: resource.healthy
+                                  ? _kNeonCyan.withOpacity(0.9)
+                                  : Colors.white38,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(resource.status.isEmpty ? type.label : resource.status,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: resource.healthy
-                              ? const Color(0xFF80CBC4)
-                              : Colors.white38,
-                        )),
+                    const Icon(Icons.chevron_right, color: Colors.white38),
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right, color: Colors.white38),
-            ],
+            ),
           ),
         ),
       ),
@@ -394,7 +593,8 @@ class _ResourceCard extends StatelessWidget {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: _kCardBg,
+      backgroundColor: _kNeonBg,
+      barrierColor: Colors.black.withOpacity(0.7),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -411,13 +611,20 @@ class _StatusDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = healthy ? _kGreen : Colors.white24;
+    final (color, label) = _statusHue(status, healthy);
     return Tooltip(
-      message: healthy ? 'Running / Ready' : '未知',
+      message: label,
       child: Container(
         width: 10,
         height: 10,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color,
+          boxShadow: [
+            BoxShadow(
+                color: color.withOpacity(0.7), blurRadius: 8, spreadRadius: 1),
+          ],
+        ),
       ),
     );
   }
@@ -611,16 +818,24 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
     final cmd = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: _kCardBg,
-        title: const Text('▶ Exec 命令'),
+        backgroundColor: _kNeonBg,
+        title: const Text('▶ EXEC 命令',
+            style: TextStyle(
+                color: _kNeonCyan,
+                fontFamily: 'monospace',
+                letterSpacing: 1)),
         content: TextField(
           controller: cmdCtrl,
           autofocus: true,
-          style: const TextStyle(fontFamily: 'monospace'),
-          decoration: const InputDecoration(
+          style: const TextStyle(fontFamily: 'monospace', color: _kCyanTerm),
+          decoration: InputDecoration(
             labelText: '命令',
             hintText: 'ls -la',
-            border: OutlineInputBorder(),
+            labelStyle: const TextStyle(color: _kNeonCyan),
+            enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: _kNeonCyan.withOpacity(0.4))),
+            border: const OutlineInputBorder(
+                borderSide: BorderSide(color: _kNeonCyan)),
           ),
         ),
         actions: [
@@ -629,12 +844,13 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
             child: const Text('取消'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: _kK8sBlue),
+            style: FilledButton.styleFrom(
+                backgroundColor: _kNeonCyan, foregroundColor: Colors.black),
             onPressed: () {
               final t = cmdCtrl.text.trim();
               Navigator.pop(ctx, t.isEmpty ? 'ls -la' : t);
             },
-            child: const Text('執行'),
+            child: const Text('執行', style: TextStyle(fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -746,13 +962,15 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
             children: [
               Row(
                 children: [
-                  Icon(type.icon, color: _kK8sBlue),
+                  Icon(type.icon, color: _kNeonCyan),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       resource.name.isEmpty ? '（未命名）' : resource.name,
                       style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.bold),
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5),
                     ),
                   ),
                   _StatusDot(healthy: resource.healthy, status: resource.status),
@@ -760,14 +978,18 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
               ),
               const SizedBox(height: 4),
               Text(type.label,
-                  style: const TextStyle(color: _kK8sBlue, fontSize: 13)),
+                  style: const TextStyle(
+                      color: _kNeonPurple,
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                      letterSpacing: 1.5)),
               const SizedBox(height: 12),
               // 動作按鈕列：YAML / Logs / Exec
               Row(
                 children: [
                   _actionButton('📝', 'YAML', _fetchYaml),
-                  _actionButton('🖥', 'Logs', _isPod ? _fetchLogs : null),
-                  _actionButton('▶', 'Exec', _isPod ? _runExec : null),
+                  _actionButton('🖥', 'LOGS', _isPod ? _fetchLogs : null),
+                  _actionButton('▶', 'EXEC', _isPod ? _runExec : null),
                 ],
               ),
               const SizedBox(height: 12),
@@ -775,14 +997,18 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
                 child: ListView(
                   controller: scrollController,
                   children: [
-                    _DetailRow(label: '類型', value: type.label),
-                    _DetailRow(label: 'Name', value: resource.name),
-                    _DetailRow(label: 'Namespace', value: resource.namespace),
-                    _DetailRow(label: 'Status', value: resource.status),
+                    _DetailRow(label: 'TYPE', value: type.label),
+                    _DetailRow(label: 'NAME', value: resource.name),
+                    _DetailRow(label: 'NAMESPACE', value: resource.namespace),
+                    _DetailRow(label: 'STATUS', value: resource.status),
                     if (resource.labels.isNotEmpty) ...[
                       const SizedBox(height: 12),
-                      const Text('Labels',
-                          style: TextStyle(color: Colors.white38, fontSize: 13)),
+                      const Text('// LABELS',
+                          style: TextStyle(
+                              color: _kNeonCyan,
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                              letterSpacing: 1.5)),
                       const SizedBox(height: 6),
                       ...resource.labels.entries.map(
                         (e) => Padding(
@@ -791,19 +1017,23 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 10, vertical: 6),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF0D0E13),
+                              color: _kGlass,
                               borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                  color: _kNeonPurple.withOpacity(0.35)),
                             ),
                             child: Row(
                               children: [
                                 const Icon(Icons.label_outline,
-                                    size: 14, color: _kK8sBlue),
+                                    size: 14, color: _kNeonCyan),
                                 const SizedBox(width: 6),
                                 Expanded(
                                   child: Text(
                                     '${e.key}=${e.value}',
                                     style: const TextStyle(
-                                        fontFamily: 'monospace', fontSize: 12),
+                                        fontFamily: 'monospace',
+                                        fontSize: 12,
+                                        color: Colors.white70),
                                   ),
                                 ),
                               ],
@@ -821,6 +1051,12 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _kNeonCyan,
+                    side: BorderSide(color: _kNeonCyan.withOpacity(0.5)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
                   onPressed: () => Navigator.pop(ctx),
                   child: const Text('關閉'),
                 ),
@@ -839,15 +1075,21 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
         child: OutlinedButton(
           onPressed: onTap,
           style: OutlinedButton.styleFrom(
-            foregroundColor: onTap == null ? Colors.white24 : _kK8sBlue,
+            foregroundColor: onTap == null ? Colors.white24 : _kNeonCyan,
             side: BorderSide(
                 color: onTap == null
                     ? Colors.white12
-                    : _kK8sBlue.withOpacity(0.55)),
+                    : _kNeonCyan.withOpacity(0.6)),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10)),
             padding: const EdgeInsets.symmetric(vertical: 12),
           ),
           child: Text('$emoji $label',
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  fontFamily: 'monospace',
+                  letterSpacing: 0.5)),
         ),
       ),
     );
@@ -859,7 +1101,8 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 24),
         child: Center(
-            child: CircularProgressIndicator(color: _kK8sBlue, strokeWidth: 2.5)),
+            child:
+                CircularProgressIndicator(color: _kNeonCyan, strokeWidth: 2.5)),
       );
     }
     if (_message != null) {
@@ -867,9 +1110,9 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
         width: double.infinity,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF20160A),
+          color: _kGlass,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.orangeAccent.withOpacity(0.4)),
+          border: Border.all(color: Colors.orangeAccent.withOpacity(0.5)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -896,40 +1139,23 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Text('YAML',
-                  style: TextStyle(color: Colors.white38, fontSize: 13)),
-              if (demo) ...[
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.white12,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Text('示範',
-                      style:
-                          TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                ),
-              ],
-            ],
-          ),
+          _panelHeader('YAML', demo),
           const SizedBox(height: 8),
           Container(
             constraints: const BoxConstraints(maxHeight: 240),
             decoration: BoxDecoration(
-              color: const Color(0xFF0D0E13),
+              color: _kTerminalBg,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.white12),
+              border: Border.all(color: _kNeonCyan.withOpacity(0.4)),
             ),
             child: TextField(
               controller: _yamlCtrl,
               maxLines: null,
               expands: true,
               style: const TextStyle(
-                  fontFamily: 'monospace', fontSize: 12, color: Colors.white70),
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  color: _kCyanTerm),
               decoration: const InputDecoration(
                 contentPadding:
                     EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -942,10 +1168,12 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              style: FilledButton.styleFrom(backgroundColor: _kK8sBlue),
+              style: FilledButton.styleFrom(
+                  backgroundColor: _kNeonCyan, foregroundColor: Colors.black),
               onPressed: _busy ? null : _applyYaml,
               icon: const Icon(Icons.save_outlined, size: 18),
-              label: const Text('💾 套用'),
+              label: const Text('💾 套用',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
             ),
           ),
           const SizedBox(height: 8),
@@ -953,63 +1181,82 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
       );
     }
     if (_logs != null) {
-      return _terminalPanel('Logs', _logs!, demo);
+      return _terminalPanel('LOGS', _logs!, demo, textColor: _kGreenTerm);
     }
     if (_exec != null) {
-      return _terminalPanel('Exec 輸出', _exec!, demo);
+      return _terminalPanel('EXEC OUTPUT', _exec!, demo, textColor: _kCyanTerm);
     }
     // 預設提示
     return const Padding(
       padding: EdgeInsets.symmetric(vertical: 24),
       child: Center(
-        child: Text('撳上方按鈕查看 YAML / Logs / 執行命令',
-            style: TextStyle(color: Colors.white38, fontSize: 12)),
+        child: Text('⏵ 撳上方按鈕查看 YAML / Logs / 執行命令',
+            style: TextStyle(
+                color: Colors.white38,
+                fontSize: 12,
+                fontFamily: 'monospace')),
       ),
     );
   }
 
-  // Monospace 黑底終端顯示（logs / exec 輸出共用）。
-  Widget _terminalPanel(String title, String text, bool demo) {
+  // Panel 標題列：cyan mono 微字 + 「示範」徽章。
+  Widget _panelHeader(String title, bool demo) {
+    return Row(
+      children: [
+        Text(title,
+            style: const TextStyle(
+                color: _kNeonCyan,
+                fontSize: 12,
+                fontFamily: 'monospace',
+                letterSpacing: 1.5)),
+        if (demo) ...[
+          const SizedBox(width: 8),
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                  colors: [_kNeonCyan, _kNeonPurple]),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Text('示範',
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black)),
+          ),
+        ],
+      ],
+    );
+  }
+
+  // Monospace 暗黑終端顯示（logs / exec 輸出共用），藍/綠霓虹描邊。
+  Widget _terminalPanel(String title, String text, bool demo,
+      {Color textColor = _kCyanTerm}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Text(title,
-                style: const TextStyle(color: Colors.white38, fontSize: 13)),
-            if (demo) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.white12,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Text('示範',
-                    style:
-                        TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-              ),
-            ],
-          ],
-        ),
+        _panelHeader(title, demo),
         const SizedBox(height: 8),
         Container(
           width: double.infinity,
           constraints: const BoxConstraints(maxHeight: 240),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Colors.black,
+            color: _kTerminalBg,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.white12),
+            border: Border.all(color: _kNeonCyan.withOpacity(0.4)),
+            boxShadow: [
+              BoxShadow(color: _kNeonCyan.withOpacity(0.08), blurRadius: 8),
+            ],
           ),
           child: SingleChildScrollView(
             child: SelectableText(
               text,
-              style: const TextStyle(
+              style: TextStyle(
                   fontFamily: 'monospace',
                   fontSize: 12,
-                  color: Color(0xFFA5D6A7), // 綠色 terminal 字
+                  color: textColor,
                   height: 1.5),
             ),
           ),
@@ -1032,8 +1279,15 @@ class _DetailRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 90, child: Text(label,
-              style: const TextStyle(color: Colors.white38))),
+          SizedBox(
+            width: 90,
+            child: Text(label,
+                style: const TextStyle(
+                    color: _kNeonPurple2,
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    letterSpacing: 1)),
+          ),
           Expanded(
             child: Text(
               value.isEmpty ? '—' : value,
@@ -1105,11 +1359,14 @@ class _K8sConnectSheetState extends State<_K8sConnectSheet> {
           children: [
             const Row(
               children: [
-                Icon(Icons.cloud_done, color: _kK8sBlue),
+                Icon(Icons.cloud_done, color: _kNeonCyan),
                 SizedBox(width: 10),
-                Text('連接 Cluster',
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Text('連接 CLUSTER',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'monospace',
+                        letterSpacing: 1)),
               ],
             ),
             const SizedBox(height: 6),
@@ -1119,50 +1376,82 @@ class _K8sConnectSheetState extends State<_K8sConnectSheet> {
               style: TextStyle(color: Colors.white60, fontSize: 13, height: 1.5),
             ),
             const SizedBox(height: 16),
-            const Text('方式一：kubeconfig',
-                style: TextStyle(fontWeight: FontWeight.w600)),
+            const Text('— 01 — KUBECONFIG',
+                style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: _kNeonCyan,
+                    fontFamily: 'monospace',
+                    letterSpacing: 1)),
             const SizedBox(height: 8),
             TextField(
               controller: _kubeconfigCtrl,
               maxLines: 6,
               style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: '貼上 kubeconfig YAML…',
-                border: OutlineInputBorder(),
+                filled: true,
+                fillColor: _kGlass,
+                enabledBorder: OutlineInputBorder(
+                    borderSide:
+                        BorderSide(color: _kNeonCyan.withOpacity(0.4))),
+                border: const OutlineInputBorder(
+                    borderSide: BorderSide(color: _kNeonCyan)),
               ),
             ),
             const SizedBox(height: 20),
-            const Text('方式二：Server + Token',
-                style: TextStyle(fontWeight: FontWeight.w600)),
+            const Text('— 02 — SERVER + TOKEN',
+                style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: _kNeonCyan,
+                    fontFamily: 'monospace',
+                    letterSpacing: 1)),
             const SizedBox(height: 8),
             TextField(
               controller: _serverCtrl,
               keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+              decoration: InputDecoration(
                 labelText: 'Cluster Server IP / URL',
+                labelStyle: const TextStyle(color: _kNeonCyan),
                 hintText: 'https://192.168.1.10:6443',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.dns_outlined, color: _kK8sBlue),
+                filled: true,
+                fillColor: _kGlass,
+                enabledBorder: OutlineInputBorder(
+                    borderSide:
+                        BorderSide(color: _kNeonCyan.withOpacity(0.4))),
+                border: const OutlineInputBorder(
+                    borderSide: BorderSide(color: _kNeonCyan)),
+                prefixIcon: const Icon(Icons.dns_outlined, color: _kNeonCyan),
               ),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _tokenCtrl,
               obscureText: true,
-              decoration: const InputDecoration(
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+              decoration: InputDecoration(
                 labelText: 'Token',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.key_outlined, color: _kK8sBlue),
+                labelStyle: const TextStyle(color: _kNeonCyan),
+                filled: true,
+                fillColor: _kGlass,
+                enabledBorder: OutlineInputBorder(
+                    borderSide:
+                        BorderSide(color: _kNeonCyan.withOpacity(0.4))),
+                border: const OutlineInputBorder(
+                    borderSide: BorderSide(color: _kNeonCyan)),
+                prefixIcon: const Icon(Icons.key_outlined, color: _kNeonCyan),
               ),
             ),
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                style: FilledButton.styleFrom(backgroundColor: _kK8sBlue),
+                style: FilledButton.styleFrom(
+                    backgroundColor: _kNeonCyan, foregroundColor: Colors.black),
                 onPressed: _save,
                 icon: const Icon(Icons.save_outlined),
-                label: const Text('儲存連線設定'),
+                label: const Text('儲存連線設定',
+                    style: TextStyle(fontWeight: FontWeight.w700)),
               ),
             ),
           ],
