@@ -10,17 +10,19 @@ import 'screens/alerts_screen.dart';
 import 'screens/command_center_screen.dart';
 import 'screens/k8s_screen.dart';
 import 'services/config.dart';
+import 'screens/native_web_embed.dart' if (dart.library.html) 'screens/web_web_embed.dart' as web_embed;
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Config.load();
+  web_embed.registerEmbed();
+  runApp(const ZavApp());
+}
 
 // ZAV Mobile — kubenav-style mobile app for the ZAV/Hermes dashboard.
 // Bottom navigation across 行情 / 加密 / 資源 / Token / 日誌, plus a 更多 hub
 // that hosts the dashboard System / Jobs / Alerts tabs. Connects to the Hermes
 // dashboard API (host + token configurable in settings).
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await Config.load(); // restore persisted baseUrl + token into Api statics
-  runApp(const ZavApp());
-}
-
 class ZavApp extends StatelessWidget {
   const ZavApp({super.key});
   @override
