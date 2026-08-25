@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../services/api.dart';
 import '../services/config.dart';
@@ -39,6 +41,9 @@ class _K8sScreenState extends State<K8sScreen> {
   bool _loading = false;
   bool _disconnected = false;
   String? _error;
+
+  // G-Brain 式資源節點網絡圖摺疊狀態。
+  bool _networkCollapsed = false;
 
   @override
   void initState() {
@@ -315,14 +320,14 @@ class _K8sScreenState extends State<K8sScreen> {
   }
 
   Widget _buildBody() {
+    final Widget content;
     if (_loading) {
-      return const Center(
+      content = const Center(
         child: CircularProgressIndicator(
             color: _kNeonCyan, strokeWidth: 2.5),
       );
-    }
-    if (_disconnected) {
-      return RefreshIndicator(
+    } else if (_disconnected) {
+      content = RefreshIndicator(
         color: _kNeonCyan,
         onRefresh: _load,
         child: ListView(
@@ -383,9 +388,8 @@ class _K8sScreenState extends State<K8sScreen> {
           ],
         ),
       );
-    }
-    if (_resources.isEmpty) {
-      return RefreshIndicator(
+    } else if (_resources.isEmpty) {
+      content = RefreshIndicator(
         color: _kNeonCyan,
         onRefresh: _load,
         child: ListView(
@@ -396,22 +400,53 @@ class _K8sScreenState extends State<K8sScreen> {
           ],
         ),
       );
-    }
-    return RefreshIndicator(
-      color: _kNeonCyan,
-      onRefresh: _load,
-      child: ListView.separated(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(12),
-        itemCount: _resources.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
-        itemBuilder: (ctx, i) => _ResourceCard(
-          resource: _resources[i],
-          type: _type,
-          demo: !_hasConnection,
-          onRefresh: _load,
+    } else {
+      // ══════ G-Brain 資源節點網絡圖 + 下面保留實用資源 list ══════
+      content = RefreshIndicator(
+        color: _kNeonCyan,
+        onRefresh: _load,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(12),
+          children: [
+            _NetworkHeader(
+              count: _resources.length,
+              collapsed: _networkCollapsed,
+              onToggle: () =>
+                  setState(() => _networkCollapsed = !_networkCollapsed),
+            ),
+            if (!_networkCollapsed) ...[
+              const SizedBox(height: 10),
+              _ResourceNetworkCanvas(
+                resources: _resources,
+                type: _type,
+                demo: !_hasConnection,
+                onRefresh: _load,
+              ),
+              const SizedBox(height: 14),
+            ],
+            const SizedBox(height: 4),
+            ..._resources.map(
+              (r) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _ResourceCard(
+                  resource: r,
+                  type: _type,
+                  demo: !_hasConnection,
+                  onRefresh: _load,
+                ),
+              ),
+            ),
+          ],
         ),
-      ),
+      );
+    }
+    // G-Brain 動態背景光環 + 浮動粒子，置於最底層；資源內容疊喺上面。
+    return Stack(
+      children: [
+        Positioned.fill(child: _HUDOrbBackground(kind: _type.apiName)),
+        content,
+      ],
     );
   }
 }
@@ -590,17 +625,8 @@ class _ResourceCard extends StatelessWidget {
   }
 
   void _showDetail(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: _kNeonBg,
-      barrierColor: Colors.black.withOpacity(0.7),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => _ResourceDetailSheet(
-          resource: resource, type: type, demo: demo, onRefresh: onRefresh),
-    );
+    _showResourceDetailSheet(context, resource, type,
+        demo: demo, onRefresh: onRefresh);
   }
 }
 
@@ -1537,4 +1563,520 @@ List<K8sResource> _demoResources(_ResourceType type) {
     default:
       return const [];
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// G-Brain 式動態視覺（FounderOS G-Brain：旋轉光環 + 外圍浮動粒子 + 節點網絡圖）
+// ═══════════════════════════════════════════════════════════════════════
+
+// 依資源 kind 決定節點色：Deployment=cyan Pod=purple Service=green
+// ConfigMap=yellow Secret=red；其餘（StatefulSets 等）用紫灰。
+Color _kindColor(String apiName) {
+  switch (apiName) {
+    case 'deployments':
+      return _kNeonCyan;
+    case 'pods':
+      return _kNeonPurple;
+    case 'services':
+      return _kGreenTerm;
+    case 'configmaps':
+      return _kNeonYellow;
+    case 'secrets':
+      return _kNeonRed;
+    default:
+      return _kNeonPurple2;
+  }
+}
+
+// 共用詳情 sheet（_ResourceCard 與網絡圖節點共用同一套詳情邏輯）。
+void _showResourceDetailSheet(BuildContext context, K8sResource resource,
+    _ResourceType type,
+    {bool demo = false, VoidCallback? onRefresh}) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: _kNeonBg,
+    barrierColor: Colors.black.withOpacity(0.7),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (ctx) => _ResourceDetailSheet(
+        resource: resource, type: type, demo: demo, onRefresh: onRefresh),
+  );
+}
+
+String _shortLabel(String s, [int max = 13]) {
+  final v = s.isEmpty ? '（未命名）' : s;
+  return v.length <= max ? v : '${v.substring(0, max)}…';
+}
+
+// ── 1) 資源節點網絡圖（可摺疊標題列）──────────────────────────────────
+class _NetworkHeader extends StatelessWidget {
+  final int count;
+  final bool collapsed;
+  final VoidCallback onToggle;
+  const _NetworkHeader({
+    required this.count,
+    required this.collapsed,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onToggle,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: _kGlass,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: _kNeonCyan.withOpacity(0.3)),
+            boxShadow: [
+              BoxShadow(color: _kNeonCyan.withOpacity(0.06), blurRadius: 12),
+            ],
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.hub_outlined, color: _kNeonCyan, size: 20),
+              const SizedBox(width: 10),
+              const Text(
+                'NETWORK · 資源節點網絡圖',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  fontFamily: 'monospace',
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$count',
+                style: const TextStyle(
+                  color: _kNeonCyan,
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                ),
+              ),
+              const Spacer(),
+              Icon(
+                collapsed
+                    ? Icons.keyboard_arrow_down
+                    : Icons.keyboard_arrow_up,
+                color: _kNeonCyan.withOpacity(0.8),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// 網絡節點（資源 + 畫布座標）。
+class _NetNode {
+  final K8sResource resource;
+  final Offset center;
+  final double radius;
+  const _NetNode(this.resource, this.center, this.radius);
+}
+
+// 固定高度網絡圖畫布：CustomPaint 畫節點 + GestureDetector 撳節點睇詳情。
+class _ResourceNetworkCanvas extends StatelessWidget {
+  final List<K8sResource> resources;
+  final _ResourceType type;
+  final bool demo;
+  final VoidCallback? onRefresh;
+  const _ResourceNetworkCanvas({
+    required this.resources,
+    required this.type,
+    this.demo = false,
+    this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final kindColor = _kindColor(type.apiName);
+    return Container(
+      height: 200,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0C111C), Color(0xFF070A12)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(color: _kNeonCyan.withOpacity(0.25)),
+        boxShadow: [
+          BoxShadow(color: _kNeonCyan.withOpacity(0.08), blurRadius: 18),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: LayoutBuilder(
+        builder: (ctx, constraints) {
+          final size = Size(constraints.maxWidth, constraints.maxHeight);
+          final nodes = _computeNetworkNodes(size, resources);
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (d) =>
+                _onNodeTap(context, d.localPosition, nodes),
+            child: CustomPaint(
+              size: size,
+              painter: _NetworkPainter(nodes: nodes, kindColor: kindColor),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // 撳節點 → 重用詳情 sheet。搵最近（且於 hit-radius 內）節點。
+  void _onNodeTap(
+      BuildContext context, Offset local, List<_NetNode> nodes) {
+    _NetNode? best;
+    var bestHit = 40.0;
+    for (final n in nodes) {
+      final d = (n.center - local).distance;
+      final threshold = n.radius + 12;
+      if (d < threshold && d < bestHit) {
+        bestHit = d;
+        best = n;
+      }
+    }
+    if (best != null) {
+      _showResourceDetailSheet(context, best.resource, type,
+          demo: demo, onRefresh: onRefresh);
+    }
+  }
+}
+
+// 放射狀佈局：節點圍繞中心分佈。為主圖美貌，最多顯示前 12 個節點。
+List<_NetNode> _computeNetworkNodes(Size size, List<K8sResource> resources) {
+  final shown = resources.length <= 12 ? resources : resources.take(12).toList();
+  final n = shown.length;
+  if (n == 0) return const [];
+  final center = Offset(size.width / 2, size.height / 2 + 4);
+  final radius = math.min(size.width, size.height) * 0.30;
+  final nodeRadius = n <= 8 ? 21.0 : 16.0;
+  final nodes = <_NetNode>[];
+  for (var i = 0; i < n; i++) {
+    final angle = -math.pi / 2 + (i * 2 * math.pi) / n;
+    final pos = center + Offset(math.cos(angle), math.sin(angle)) * radius;
+    nodes.add(_NetNode(shown[i], pos, nodeRadius));
+  }
+  return nodes;
+}
+
+class _NetworkPainter extends CustomPainter {
+  final List<_NetNode> nodes;
+  final Color kindColor;
+  _NetworkPainter({required this.nodes, required this.kindColor});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2 + 4);
+    // 背景參考數據環（G-Brain 感）
+    final faintCircle = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    for (final r in [38.0, 64.0, math.min(size.width, size.height) * 0.42]) {
+      faintCircle.color = _kNeonCyan.withOpacity(0.06);
+      canvas.drawCircle(center, r, faintCircle);
+    }
+    if (nodes.isEmpty) {
+      final tp = TextPainter(
+        text: const TextSpan(
+          text: '無資源節點',
+          style: TextStyle(color: Colors.white38, fontSize: 12),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, center - Offset(tp.width / 2, tp.height / 2));
+      return;
+    }
+    // 放射狀連線：中心 ↔ 每個節點
+    for (final n in nodes) {
+      canvas.drawLine(
+        center,
+        n.center,
+        Paint()
+          ..strokeWidth = 1
+          ..color = kindColor.withOpacity(0.28),
+      );
+    }
+    // 環狀連線：節點 ↔ 下一個節點（織網感）
+    final ringPaint = Paint()
+      ..strokeWidth = 1
+      ..color = kindColor.withOpacity(0.14);
+    for (var i = 0; i < nodes.length; i++) {
+      final a = nodes[i];
+      final b = nodes[(i + 1) % nodes.length];
+      canvas.drawLine(a.center, b.center, ringPaint);
+    }
+    // 中心 hub 亮點
+    canvas.drawCircle(
+      center,
+      3.4,
+      Paint()
+        ..color = kindColor
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+    );
+    canvas.drawCircle(center, 1.4, Paint()..color = Colors.white);
+    // 節點
+    for (final n in nodes) {
+      _drawNode(canvas, n);
+    }
+  }
+
+  void _drawNode(Canvas canvas, _NetNode n) {
+    final c = n.center;
+    final r = n.radius;
+    final healthy = n.resource.healthy;
+    // glow
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()
+        ..color = kindColor.withOpacity(0.18)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+    );
+    // fill
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()..color = kindColor.withOpacity(healthy ? 0.26 : 0.12),
+    );
+    // border
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = kindColor.withOpacity(healthy ? 0.9 : 0.45),
+    );
+    if (!healthy) {
+      canvas.drawCircle(
+        c,
+        r + 3,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..color = _kNeonRed.withOpacity(0.85),
+      );
+    }
+    // label（小字）
+    final tp = TextPainter(
+      text: TextSpan(
+        text: _shortLabel(n.resource.name),
+        style: TextStyle(
+          color: healthy ? Colors.white70 : Colors.white38,
+          fontSize: 9,
+          fontFamily: 'monospace',
+        ),
+      ),
+      maxLines: 1,
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, c + Offset(-tp.width / 2, r + 6));
+  }
+
+  @override
+  bool shouldRepaint(_NetworkPainter old) =>
+      old.nodes != nodes || old.kindColor != kindColor;
+}
+
+// ── 2) 動態背景：旋轉光環 + 浮動粒子（G-Brain 科幻感）──────────────────
+class _HUDOrbBackground extends StatefulWidget {
+  final String kind;
+  const _HUDOrbBackground({required this.kind});
+  @override
+  State<_HUDOrbBackground> createState() => _HUDOrbBackgroundState();
+}
+
+// 背景粒子（位置/大小/漂移/相位均隨機，緩慢漂移 + 微閃）。
+class _OrbParticle {
+  final double x, y, size, speed, phase, opacity;
+  final Offset drift;
+  final bool purple;
+  const _OrbParticle({
+    required this.x,
+    required this.y,
+    required this.size,
+    required this.speed,
+    required this.phase,
+    required this.opacity,
+    required this.drift,
+    required this.purple,
+  });
+}
+
+class _HUDOrbBackgroundState extends State<_HUDOrbBackground>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final List<_OrbParticle> _particles;
+  late final Color _accent;
+
+  @override
+  void initState() {
+    super.initState();
+    _accent = _kindColor(widget.kind);
+    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 20))..repeat();
+    final rnd = math.Random(20260825);
+    _particles = List.generate(48, (_) => _OrbParticle(
+          x: rnd.nextDouble(),
+          y: rnd.nextDouble(),
+          size: 0.8 + rnd.nextDouble() * 2.6,
+          speed: 0.35 + rnd.nextDouble() * 1.4,
+          phase: rnd.nextDouble() * 2 * math.pi,
+          opacity: 0.25 + rnd.nextDouble() * 0.55,
+          drift: Offset((rnd.nextDouble() - 0.5) * 22,
+              (rnd.nextDouble() - 0.5) * 18),
+          purple: rnd.nextBool(),
+        ));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) => CustomPaint(
+        size: Size.infinite,
+        painter: _HUDOrbPainter(
+          t: _controller.value,
+          particles: _particles,
+          accent: _accent,
+        ),
+      ),
+    );
+  }
+}
+
+class _HUDOrbPainter extends CustomPainter {
+  final double t;
+  final List<_OrbParticle> particles;
+  final Color accent;
+  _HUDOrbPainter({
+    required this.t,
+    required this.particles,
+    required this.accent,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    if (w <= 0 || h <= 0) return;
+    // 光環集中在資源列表上方區域（背景）。
+    final center = Offset(w * 0.5, h * 0.28);
+    // 中心柔光
+    final glow = Paint()
+      ..shader = RadialGradient(
+        colors: [accent.withOpacity(0.12), Colors.transparent],
+      ).createShader(
+        Rect.fromCircle(center: center, radius: math.min(w, h) * 0.45),
+      );
+    canvas.drawRect(Offset.zero & size, glow);
+
+    // 3 條旋轉光環（輪流 cyan / purple / kind accent）
+    const colors = [_kNeonCyan, _kNeonPurple, _kNeonCyan];
+    const radii = [46.0, 74.0, 106.0];
+    for (var i = 0; i < 3; i++) {
+      final sweep = (1.0 - 0.10 * i) * 2 * math.pi; // 留缺口見旋轉
+      final rot = t * 2 * math.pi * (i.isEven ? 1 : -1) * (1.0 + 0.15 * i) +
+          i * 0.7;
+      _drawRing(
+        canvas,
+        center,
+        radii[i],
+        i == 2 ? accent.withOpacity(0.9) : colors[i],
+        sweep,
+        rot,
+      );
+    }
+    // 中心核心亮點
+    canvas.drawCircle(
+      center,
+      3.4,
+      Paint()
+        ..color = accent
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+    );
+
+    // 浮動粒子：緩慢漂移 + 微閃
+    for (final p in particles) {
+      final px = (p.x * w + math.sin(t * 2 * math.pi * p.speed + p.phase) *
+              p.drift.dx +
+          t * 40 * p.speed) %
+          (w + 6);
+      final py = (p.y * h + math.cos(t * 2 * math.pi * p.speed + p.phase) *
+              p.drift.dy) %
+          (h + 6);
+      final flick = 0.5 + 0.5 * math.sin(t * 2 * math.pi * 2.5 + p.phase);
+      final op = p.opacity * (0.35 + 0.65 * flick);
+      final paint = Paint()
+        ..color = (p.purple ? _kNeonPurple : _kNeonCyan).withOpacity(op);
+      canvas.drawCircle(Offset(px, py), p.size, paint);
+    }
+  }
+
+  void _drawRing(
+      Canvas c, Offset center, double radius, Color color, double sweep,
+      double rot) {
+    final rect = Rect.fromCircle(center: center, radius: radius);
+    // 淡底整圈
+    c.drawOval(
+      rect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = color.withOpacity(0.14),
+    );
+    // glow arc（較粗 + blur）
+    c.drawArc(
+      rect,
+      rot,
+      sweep,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5
+        ..color = color.withOpacity(0.16)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+    );
+    // 亮弧
+    c.drawArc(
+      rect,
+      rot,
+      sweep,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = color,
+    );
+    // 弧上軌道亮點（令旋轉更明顯）
+    final mid = rot + sweep * 0.5;
+    final pos = center + Offset(math.cos(mid), math.sin(mid)) * radius;
+    c.drawCircle(
+      pos,
+      2.2,
+      Paint()
+        ..color = color
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+    );
+    c.drawCircle(pos, 1.1, Paint()..color = Colors.white);
+  }
+
+  @override
+  bool shouldRepaint(_HUDOrbPainter old) => old.t != t;
 }
