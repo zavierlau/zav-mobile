@@ -264,8 +264,12 @@ class _K8sScreenState extends State<K8sScreen> {
         padding: const EdgeInsets.all(12),
         itemCount: _resources.length,
         separatorBuilder: (_, __) => const SizedBox(height: 10),
-        itemBuilder: (ctx, i) =>
-            _ResourceCard(resource: _resources[i], type: _type),
+        itemBuilder: (ctx, i) => _ResourceCard(
+          resource: _resources[i],
+          type: _type,
+          demo: !_hasConnection,
+          onRefresh: _load,
+        ),
       ),
     );
   }
@@ -323,7 +327,14 @@ class K8sResource {
 class _ResourceCard extends StatelessWidget {
   final K8sResource resource;
   final _ResourceType type;
-  const _ResourceCard({required this.resource, required this.type});
+  final bool demo;
+  final VoidCallback? onRefresh;
+  const _ResourceCard({
+    required this.resource,
+    required this.type,
+    this.demo = false,
+    this.onRefresh,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -388,7 +399,7 @@ class _ResourceCard extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (ctx) => _ResourceDetailSheet(
-          resource: resource, type: type),
+          resource: resource, type: type, demo: demo, onRefresh: onRefresh),
     );
   }
 }
@@ -412,13 +423,316 @@ class _StatusDot extends StatelessWidget {
   }
 }
 
-class _ResourceDetailSheet extends StatelessWidget {
+class _ResourceDetailSheet extends StatefulWidget {
   final K8sResource resource;
   final _ResourceType type;
-  const _ResourceDetailSheet({required this.resource, required this.type});
+  final bool demo;
+  final VoidCallback? onRefresh;
+  const _ResourceDetailSheet({
+    required this.resource,
+    required this.type,
+    this.demo = false,
+    this.onRefresh,
+  });
+  @override
+  State<_ResourceDetailSheet> createState() => _ResourceDetailSheetState();
+}
+
+class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
+  final TextEditingController _yamlCtrl = TextEditingController();
+
+  bool _busy = false;
+  bool _activeYaml = false; // which result panel is being shown
+  bool _demoResult = false;
+  String? _message; // info / error / 未連接 cluster
+  String? _yaml;
+  String? _logs;
+  String? _exec;
+
+  _ResourceType get type => widget.type;
+  K8sResource get resource => widget.resource;
+  bool get _isPod => type.apiName == 'pods'; // logs / exec 僅限 Pod
+
+  @override
+  void dispose() {
+    _yamlCtrl.dispose();
+    super.dispose();
+  }
+
+  // 構造含 query 嘅 action path（用 Api.get 帶 query 讀取）。
+  String _actionPath(String op) {
+    final q = <String, String>{
+      'op': op,
+      'kind': type.label,
+      if (resource.name.isNotEmpty) 'name': resource.name,
+      if (resource.namespace.isNotEmpty) 'namespace': resource.namespace,
+    };
+    return '/api/k8s/action?${Uri(queryParameters: q).query}';
+  }
+
+  // 統一檢查：connected:false → 「未連接 cluster」；ok:false → 錯誤訊息。
+  // 有訊息就 setState 並回傳 true（表示要停手）。
+  bool _guardFailure(dynamic raw, String actionName) {
+    String? msg;
+    final m = raw is Map ? raw : const <String, dynamic>{};
+    if (m['connected'] == false) {
+      msg = '未連接 cluster';
+    } else if (m['ok'] == false) {
+      final err = m['error'] ?? m['message'];
+      msg = err is String && err.isNotEmpty ? '$actionName失敗：$err' : '$actionName失敗';
+    }
+    if (msg != null) {
+      setState(() {
+        _message = msg;
+        _activeYaml = false;
+        _yaml = null;
+        _logs = null;
+        _exec = null;
+        _demoResult = false;
+        _busy = false;
+      });
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> _fetchYaml() async {
+    setState(() => _busy = true);
+    try {
+      if (widget.demo) {
+        setState(() {
+          _yaml = _demoYaml();
+          _logs = null;
+          _exec = null;
+          _message = null;
+          _activeYaml = true;
+          _demoResult = true;
+          _busy = false;
+        });
+        return;
+      }
+      final raw = await Api.get(_actionPath('get'));
+      if (!mounted) return;
+      if (_guardFailure(raw, '讀取 YAML')) return;
+      final y = raw is Map ? raw['yaml'] : null;
+      setState(() {
+        _yaml = y is String ? y : '（無 YAML）';
+        _logs = null;
+        _exec = null;
+        _message = null;
+        _activeYaml = true;
+        _demoResult = false;
+        _busy = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _message = '讀取 YAML 失敗：$e';
+        _activeYaml = false;
+        _busy = false;
+      });
+    }
+  }
+
+  Future<void> _applyYaml() async {
+    setState(() => _busy = true);
+    try {
+      final raw = await Api.post('/api/k8s/action', {
+        'op': 'apply',
+        'yaml': _yamlCtrl.text,
+      });
+      if (!mounted) return;
+      if (_guardFailure(raw, '套用')) return;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('YAML 已套用，已刷新')),
+      );
+      widget.onRefresh?.call();
+      setState(() => _busy = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('套用失敗：$e')),
+      );
+    }
+  }
+
+  Future<void> _fetchLogs() async {
+    if (!_isPod) {
+      setState(() {
+        _message = '只有 Pod 有 logs';
+        _activeYaml = false;
+        _yaml = null;
+        _exec = null;
+      });
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      if (widget.demo) {
+        setState(() {
+          _logs = _demoLogs();
+          _yaml = null;
+          _exec = null;
+          _message = null;
+          _activeYaml = false;
+          _demoResult = true;
+          _busy = false;
+        });
+        return;
+      }
+      final raw = await Api.get(_actionPath('logs'));
+      if (!mounted) return;
+      if (_guardFailure(raw, '讀取 Logs')) return;
+      final l = raw is Map ? raw['logs'] : null;
+      setState(() {
+        _logs = l is String ? l : '（無日誌）';
+        _yaml = null;
+        _exec = null;
+        _message = null;
+        _activeYaml = false;
+        _demoResult = false;
+        _busy = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _message = '讀取 Logs 失敗：$e';
+        _activeYaml = false;
+        _busy = false;
+      });
+    }
+  }
+
+  Future<void> _runExec() async {
+    if (!_isPod) return; // 按鈕已禁用；雙重保險
+    final cmdCtrl = TextEditingController(text: 'ls -la');
+    final cmd = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _kCardBg,
+        title: const Text('▶ Exec 命令'),
+        content: TextField(
+          controller: cmdCtrl,
+          autofocus: true,
+          style: const TextStyle(fontFamily: 'monospace'),
+          decoration: const InputDecoration(
+            labelText: '命令',
+            hintText: 'ls -la',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: _kK8sBlue),
+            onPressed: () {
+              final t = cmdCtrl.text.trim();
+              Navigator.pop(ctx, t.isEmpty ? 'ls -la' : t);
+            },
+            child: const Text('執行'),
+          ),
+        ],
+      ),
+    );
+    cmdCtrl.dispose();
+    if (cmd == null) return;
+    setState(() => _busy = true);
+    try {
+      if (widget.demo) {
+        setState(() {
+          _exec = _demoExec(cmd);
+          _yaml = null;
+          _logs = null;
+          _message = null;
+          _activeYaml = false;
+          _demoResult = true;
+          _busy = false;
+        });
+        return;
+      }
+      final raw = await Api.post('/api/k8s/action', {
+        'op': 'exec',
+        'kind': type.label,
+        'name': resource.name,
+        'namespace': resource.namespace,
+        'cmd': cmd,
+      });
+      if (!mounted) return;
+      if (_guardFailure(raw, '執行')) return;
+      final out = raw is Map ? raw['output'] ?? raw['result'] ?? raw['stdout'] : null;
+      setState(() {
+        _exec = out is String ? out : '（無輸出）';
+        _yaml = null;
+        _logs = null;
+        _message = null;
+        _activeYaml = false;
+        _demoResult = false;
+        _busy = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _message = '執行失敗：$e';
+        _activeYaml = false;
+        _busy = false;
+      });
+    }
+  }
+
+  // ── 示範（demo）假資料 —────────────────────────────────────────
+  String _demoYaml() {
+    return 'apiVersion: apps/v1\n'
+        'kind: ${type.label}\n'
+        'metadata:\n'
+        '  name: ${resource.name}\n'
+        '  namespace: ${resource.namespace}\n'
+        '  labels:\n'
+        '    app: demo\n'
+        'spec:\n'
+        '  replicas: 2\n'
+        '  selector:\n'
+        '    matchLabels:\n'
+        '      app: demo\n'
+        '  template:\n'
+        '    metadata:\n'
+        '      labels:\n'
+        '        app: demo\n'
+        '    spec:\n'
+        '      containers:\n'
+        '      - name: main\n'
+        '        image: nginx:1.25\n'
+        '        ports:\n'
+        '        - containerPort: 8080\n';
+  }
+
+  String _demoLogs() {
+    return '2026-08-25 10:00:01 INFO  container ready\n'
+        '2026-08-25 10:00:02 INFO  Started HTTP server on 0.0.0.0:8080\n'
+        '2026-08-25 10:00:05 DEBUG healthz ok\n'
+        '2026-08-25 10:00:11 INFO  GET /stats 200 4ms\n'
+        '2026-08-25 10:00:12 INFO  worker tick processed 42\n'
+        '2026-08-25 10:00:14 DEBUG connection pool size=4\n';
+  }
+
+  String _demoExec(String cmd) {
+    return '\$ $cmd\n'
+        'total 52\n'
+        'drwxr-xr-x 1 root root  4096 Aug 25 09:58 .\n'
+        'drwxr-xr-x 1 root root  4096 Aug 25 09:58 ..\n'
+        '-rw-r--r-- 1 root root    14 Aug 25 09:58 .env\n'
+        'drwxr-xr-x 2 root root  4096 Aug 25 09:58 config\n'
+        '-rwxr-xr-x 1 root root 28912 Aug 25 09:58 app\n'
+        'exit 0\n';
+  }
 
   @override
   Widget build(BuildContext context) {
+    final demo = widget.demo || _demoResult;
     return SafeArea(
       child: DraggableScrollableSheet(
         initialChildSize: 0.7,
@@ -447,7 +761,16 @@ class _ResourceDetailSheet extends StatelessWidget {
               const SizedBox(height: 4),
               Text(type.label,
                   style: const TextStyle(color: _kK8sBlue, fontSize: 13)),
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
+              // 動作按鈕列：YAML / Logs / Exec
+              Row(
+                children: [
+                  _actionButton('📝', 'YAML', _fetchYaml),
+                  _actionButton('🖥', 'Logs', _isPod ? _fetchLogs : null),
+                  _actionButton('▶', 'Exec', _isPod ? _runExec : null),
+                ],
+              ),
+              const SizedBox(height: 12),
               Expanded(
                 child: ListView(
                   controller: scrollController,
@@ -456,13 +779,11 @@ class _ResourceDetailSheet extends StatelessWidget {
                     _DetailRow(label: 'Name', value: resource.name),
                     _DetailRow(label: 'Namespace', value: resource.namespace),
                     _DetailRow(label: 'Status', value: resource.status),
-                    const SizedBox(height: 12),
-                    const Text('Labels',
-                        style: TextStyle(color: Colors.white38, fontSize: 13)),
-                    const SizedBox(height: 6),
-                    if (resource.labels.isEmpty)
-                      const Text('（無）', style: TextStyle(color: Colors.white54))
-                    else
+                    if (resource.labels.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      const Text('Labels',
+                          style: TextStyle(color: Colors.white38, fontSize: 13)),
+                      const SizedBox(height: 6),
                       ...resource.labels.entries.map(
                         (e) => Padding(
                           padding: const EdgeInsets.only(bottom: 6),
@@ -490,18 +811,13 @@ class _ResourceDetailSheet extends StatelessWidget {
                           ),
                         ),
                       ),
+                    ],
                     const SizedBox(height: 12),
-                    const Text('Logs',
-                        style: TextStyle(color: Colors.white38, fontSize: 13)),
-                    const SizedBox(height: 6),
-                    const Text(
-                      '（尚未接入；連接 cluster 之後可在此瀏覽 Pod / container 日誌）',
-                      style: TextStyle(color: Colors.white54, fontSize: 12),
-                    ),
-                    const SizedBox(height: 20),
+                    _buildActionPanel(demo),
                   ],
                 ),
               ),
+              const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton(
@@ -513,6 +829,193 @@ class _ResourceDetailSheet extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _actionButton(String emoji, String label, VoidCallback? onTap) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 3),
+        child: OutlinedButton(
+          onPressed: onTap,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: onTap == null ? Colors.white24 : _kK8sBlue,
+            side: BorderSide(
+                color: onTap == null
+                    ? Colors.white12
+                    : _kK8sBlue.withOpacity(0.55)),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+          ),
+          child: Text('$emoji $label',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        ),
+      ),
+    );
+  }
+
+  // 結果區：錯誤 / 未連接 / YAML 編輯器 / Logs / Exec 輸出。
+  Widget _buildActionPanel(bool demo) {
+    if (_busy) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(
+            child: CircularProgressIndicator(color: _kK8sBlue, strokeWidth: 2.5)),
+      );
+    }
+    if (_message != null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF20160A),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.orangeAccent.withOpacity(0.4)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.info_outline,
+                size: 18, color: Colors.orangeAccent),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _message!,
+                style: const TextStyle(
+                    color: Colors.orangeAccent, fontSize: 13, height: 1.4),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (_activeYaml && _yaml != null) {
+      // 可編輯 YAML editor（monospace）
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_yamlCtrl.text != _yaml) _yamlCtrl.text = _yaml!;
+      });
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('YAML',
+                  style: TextStyle(color: Colors.white38, fontSize: 13)),
+              if (demo) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white12,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text('示範',
+                      style:
+                          TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          Container(
+            constraints: const BoxConstraints(maxHeight: 240),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0D0E13),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: TextField(
+              controller: _yamlCtrl,
+              maxLines: null,
+              expands: true,
+              style: const TextStyle(
+                  fontFamily: 'monospace', fontSize: 12, color: Colors.white70),
+              decoration: const InputDecoration(
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                isCollapsed: true,
+                border: InputBorder.none,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: _kK8sBlue),
+              onPressed: _busy ? null : _applyYaml,
+              icon: const Icon(Icons.save_outlined, size: 18),
+              label: const Text('💾 套用'),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+      );
+    }
+    if (_logs != null) {
+      return _terminalPanel('Logs', _logs!, demo);
+    }
+    if (_exec != null) {
+      return _terminalPanel('Exec 輸出', _exec!, demo);
+    }
+    // 預設提示
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 24),
+      child: Center(
+        child: Text('撳上方按鈕查看 YAML / Logs / 執行命令',
+            style: TextStyle(color: Colors.white38, fontSize: 12)),
+      ),
+    );
+  }
+
+  // Monospace 黑底終端顯示（logs / exec 輸出共用）。
+  Widget _terminalPanel(String title, String text, bool demo) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(title,
+                style: const TextStyle(color: Colors.white38, fontSize: 13)),
+            if (demo) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.white12,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text('示範',
+                    style:
+                        TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(maxHeight: 240),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.black,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: SingleChildScrollView(
+            child: SelectableText(
+              text,
+              style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  color: Color(0xFFA5D6A7), // 綠色 terminal 字
+                  height: 1.5),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+      ],
     );
   }
 }
