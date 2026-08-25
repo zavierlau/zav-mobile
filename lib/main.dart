@@ -15,6 +15,7 @@ import 'screens/native_web_embed.dart' if (dart.library.html) 'screens/web_web_e
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Config.load();
+  await Config.loadK8s();
   web_embed.registerEmbed();
   runApp(const ZavApp());
 }
@@ -126,7 +127,7 @@ class MoreScreen extends StatelessWidget {
           _HubTile(
             icon: Icons.circle,
             title: 'Kubernetes',
-            subtitle: 'kubenav 功能（即將推出）',
+            subtitle: 'kubenav 式管理 · 連接 cluster 閱覽資源',
             color: const Color(0xFF326CE5),
             onTap: () => _push(context, const K8sScreen()),
           ),

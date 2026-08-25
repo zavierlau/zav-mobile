@@ -7,6 +7,12 @@ class Config {
   static const _kBaseUrl = 'api_base_url';
   static const _kToken = 'api_token';
 
+  // K8s cluster connection (for '/api/k8s/resources?type=...').
+  // User supplies either a full kubeconfig YAML, or server IP + token.
+  static const _kKubeconfig = 'k8s_kubeconfig';
+  static const _kK8sServer = 'k8s_server';
+  static const _kK8sToken = 'k8s_token';
+
   // Load persisted settings into Api static vars (call once at startup).
   static Future<void> load() async {
     try {
@@ -40,5 +46,38 @@ class Config {
       final p = await SharedPreferences.getInstance();
       await p.remove(_kToken);
     } catch (_) {}
+  }
+
+  // ---- K8s cluster connection (kubeconfig / server + token) ----
+  // Cached in static fields and loaded once at startup, mirroring Api statics.
+  static String kubeconfig = '';
+  static String k8sServer = '';
+  static String k8sToken = '';
+
+  static Future<void> loadK8s() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      kubeconfig = p.getString(_kKubeconfig) ?? '';
+      k8sServer = p.getString(_kK8sServer) ?? '';
+      k8sToken = p.getString(_kK8sToken) ?? '';
+    } catch (_) {}
+  }
+
+  static Future<void> saveK8s({
+    String? kubeconfig,
+    String? server,
+    String? token,
+  }) async {
+    if (kubeconfig != null) Config.kubeconfig = kubeconfig.trim();
+    if (server != null) Config.k8sServer = server.trim();
+    if (token != null) Config.k8sToken = token.trim();
+    try {
+      final p = await SharedPreferences.getInstance();
+      if (kubeconfig != null) await p.setString(_kKubeconfig, Config.kubeconfig);
+      if (server != null) await p.setString(_kK8sServer, Config.k8sServer);
+      if (token != null) await p.setString(_kK8sToken, Config.k8sToken);
+    } catch (_) {
+      // Storage unavailable — connection kept for this session only.
+    }
   }
 }

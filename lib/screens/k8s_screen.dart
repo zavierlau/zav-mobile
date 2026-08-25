@@ -1,40 +1,537 @@
 import 'package:flutter/material.dart';
+import '../services/api.dart';
+import '../services/config.dart';
 
-// Kubernetes（kubenav）留位屏幕。
-// 顯示 placeholder + 架構說明；之後會加入真實 cluster 管理 / API wiring。
-class K8sScreen extends StatelessWidget {
+// K8s brand blue (kubenav-style accent).
+const Color _kK8sBlue = Color(0xFF326CE5);
+const Color _kCardBg = Color(0xFF151820);
+const Color _kGreen = Color(0xFF26A69A);
+
+// kubenav 式 Kubernetes cluster 管理。
+// 目前未有真 cluster：UI 已準備好資源清單 / 詳情 / logs 概念，資料源透過
+// /api/k8s/resources?type=... 讀取；未能抓到就顯示「未連接 cluster」友善空狀態，
+// 並可前往「連接 Cluster」設定位 或「載入示範資料」預覽 UI。
+class K8sScreen extends StatefulWidget {
   const K8sScreen({super.key});
+  @override
+  State<K8sScreen> createState() => _K8sScreenState();
+}
+
+class _K8sScreenState extends State<K8sScreen> {
+  static const _types = <_ResourceType>[
+    _ResourceType('Deployments', 'deployments', Icons.dehaze),
+    _ResourceType('Pods', 'pods', Icons.crop_square),
+    _ResourceType('Services', 'services', Icons.hub_outlined),
+    _ResourceType('StatefulSets', 'statefulsets', Icons.view_agenda_outlined),
+    _ResourceType('ConfigMaps', 'configmaps', Icons.tune),
+    _ResourceType('Secrets', 'secrets', Icons.lock_outline),
+  ];
+
+  late _ResourceType _type = _types.first;
+  List<K8sResource> _resources = [];
+  bool _loading = false;
+  bool _disconnected = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  // true = 有 cluster 連線設定；false = 從未連接（直接顯示空狀態，唔打 API）。
+  bool get _hasConnection =>
+      Config.kubeconfig.isNotEmpty || Config.k8sServer.isNotEmpty;
+
+  // 依任務要求嘗試 Api.get('/api/k8s/resources?type=<type>')。
+  // 從未連接 → 唔打 API，直接顯示「未連接」友善空狀態。
+  // 已設定但 API fail / 唔通 → 顯示「未連接 cluster 或 API 未準備」。
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _disconnected = false;
+      _error = null;
+    });
+    if (!_hasConnection) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _disconnected = true;
+        });
+      }
+      return;
+    }
+    try {
+      final raw = await Api.get(
+          '/api/k8s/resources?type=${_type.apiName}');
+      final items = _extractResources(raw);
+      if (!mounted) return;
+      setState(() {
+        _resources = items;
+        _disconnected = items.isEmpty;
+      });
+    } catch (e) {
+      // 未有真 cluster 或 API 未準備 → 唔 crash，顯示友善空狀態。
+      if (!mounted) return;
+      setState(() {
+        _resources = [];
+        _disconnected = true;
+        _error = '未連接 cluster 或 API 未準備：$e';
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  // 載入示範資料，令 UI 喺未有真 cluster 時都可見。
+  void _loadDemo() {
+    setState(() {
+      _resources = _demoResources(_type);
+      _disconnected = false;
+      _error = null;
+      _loading = false;
+    });
+  }
+
+  Future<void> _reloadAfterConnect() async {
+    await Config.loadK8s();
+    if (mounted) await _load();
+  }
+
+  Future<void> _openConnectSheet() async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _kCardBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => const _K8sConnectSheet(),
+    );
+    await _reloadAfterConnect();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(title: const Text('Kubernetes（kubenav）')),
-      body: ListView(
-        padding: const EdgeInsets.all(24),
-        children: const [
-          Icon(Icons.dns, size: 72, color: Color(0xFF326CE5)),
-          SizedBox(height: 16),
-          Text(
-            'Kubenav 功能 —— 即將推出',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+      appBar: AppBar(
+        backgroundColor: _kK8sBlue,
+        foregroundColor: Colors.white,
+        title: const Row(
+          children: [
+            Icon(Icons.dns, size: 22),
+            SizedBox(width: 10),
+            Text('Kubernetes', style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: '連接 Cluster',
+            icon: const Icon(Icons.cloud_outlined),
+            onPressed: _openConnectSheet,
           ),
-          SizedBox(height: 8),
-          Text(
-            '此頁面目前為留位（placeholder）。',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white60),
-          ),
-          SizedBox(height: 24),
-          _ArchitectureCard(
-            title: '架構',
-            points: [
-              '將加入 kubeconfig 匯入，支援多 cluster 切換',
-              'CRUD 檢視 / 管理：Deployments、Pods、Services、ConfigMaps、Secrets 等',
-              '瀏覽 event / logs、原地執行 kubectl 常用指令',
-              '透過 Hermes dashboard API 接駁 Kubernetes 控制平面',
+        ],
+      ),
+      body: Column(
+        children: [
+          _buildTypeChips(),
+          const SizedBox(height: 4),
+          Expanded(child: _buildBody()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTypeChips() {
+    return SizedBox(
+      height: 48,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        itemCount: _types.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (ctx, i) {
+          final t = _types[i];
+          final selected = t == _type;
+          return ChoiceChip(
+            label: Text(t.label),
+            selected: selected,
+            avatar: Icon(t.icon, size: 16),
+            selectedColor: _kK8sBlue,
+            backgroundColor: _kCardBg,
+            labelStyle: TextStyle(
+              color: selected ? Colors.white : Colors.white70,
+              fontSize: 13,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+            ),
+            side: BorderSide(
+              color: selected ? _kK8sBlue : Colors.white12,
+            ),
+            onSelected: (_) {
+              setState(() => _type = t);
+              _load();
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: _kK8sBlue),
+      );
+    }
+    if (_disconnected) {
+      return RefreshIndicator(
+        color: _kK8sBlue,
+        onRefresh: _load,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(24),
+          children: [
+            const SizedBox(height: 48),
+            const Icon(Icons.cloud_off, size: 72, color: _kK8sBlue),
+            const SizedBox(height: 16),
+            Text(
+              _hasConnection ? '未連接 Cluster 或 API 未準備' : '尚未連接 Cluster',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _hasConnection
+                  ? '未能從 dashboard 讀取 ${_type.label}。請確認 /api/k8s/resources 已準備好。'
+                  : '定義一個 cluster（匯入 kubeconfig 或輸入 server + token），就可開始管理 Kubernetes 資源。',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white60, height: 1.5),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    color: Colors.orangeAccent, fontSize: 12, fontFamily: 'monospace'),
+              ),
             ],
+            const SizedBox(height: 28),
+            Center(
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: _kK8sBlue),
+                onPressed: _openConnectSheet,
+                icon: const Icon(Icons.add_link),
+                label: const Text('新增 / 連接 Cluster'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Center(
+              child: TextButton.icon(
+                onPressed: _loadDemo,
+                icon: const Icon(Icons.preview, color: Colors.white54),
+                label: const Text('載入示範資料預覽', style: TextStyle(color: Colors.white54)),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (_resources.isEmpty) {
+      return RefreshIndicator(
+        color: _kK8sBlue,
+        onRefresh: _load,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 120),
+            Center(child: Text('暫無資源', style: TextStyle(color: Colors.white54))),
+          ],
+        ),
+      );
+    }
+    return RefreshIndicator(
+      color: _kK8sBlue,
+      onRefresh: _load,
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(12),
+        itemCount: _resources.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (ctx, i) =>
+            _ResourceCard(resource: _resources[i], type: _type),
+      ),
+    );
+  }
+}
+
+class _ResourceType {
+  final String label;
+  final String apiName;
+  final IconData icon;
+  const _ResourceType(this.label, this.apiName, this.icon);
+}
+
+class K8sResource {
+  final String name;
+  final String namespace;
+  final String status;
+  final Map<String, String> labels;
+  final bool healthy; // Running / Ready → 綠；否則灰。
+  const K8sResource({
+    required this.name,
+    required this.namespace,
+    required this.status,
+    required this.labels,
+    required this.healthy,
+  });
+
+  factory K8sResource.fromJson(dynamic j) {
+    final m = j is Map ? j : {};
+    final status = '${m['status'] ?? m['phase'] ?? ''}';
+    final labels = <String, String>{};
+    final rawLabels = m['labels'];
+    if (rawLabels is Map) {
+      rawLabels.forEach((k, v) => labels['$k'] = '$v');
+    }
+    final healthy = _isHealthy(status);
+    return K8sResource(
+      name: '${m['name'] ?? ''}',
+      namespace: '${m['namespace'] ?? 'default'}',
+      status: status,
+      labels: labels,
+      healthy: healthy,
+    );
+  }
+
+  static bool _isHealthy(String status) {
+    final s = status.toLowerCase();
+    if (s.contains('running')) return true;
+    if (s.contains('ready')) return true;
+    if (s.contains('available')) return true;
+    if (s.contains('complete')) return true;
+    return false;
+  }
+}
+
+class _ResourceCard extends StatelessWidget {
+  final K8sResource resource;
+  final _ResourceType type;
+  const _ResourceCard({required this.resource, required this.type});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: _kCardBg,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _showDetail(context),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              _StatusDot(healthy: resource.healthy, status: resource.status),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      resource.name.isEmpty ? '（未命名）' : resource.name,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 15),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(Icons.folder_outlined,
+                            size: 13, color: Colors.white38),
+                        const SizedBox(width: 4),
+                        Text(resource.namespace,
+                            style: const TextStyle(
+                                fontSize: 13, color: Colors.white60)),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(resource.status.isEmpty ? type.label : resource.status,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: resource.healthy
+                              ? const Color(0xFF80CBC4)
+                              : Colors.white38,
+                        )),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: Colors.white38),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showDetail(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: _kCardBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => _ResourceDetailSheet(
+          resource: resource, type: type),
+    );
+  }
+}
+
+class _StatusDot extends StatelessWidget {
+  final bool healthy;
+  final String status;
+  const _StatusDot({required this.healthy, required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = healthy ? _kGreen : Colors.white24;
+    return Tooltip(
+      message: healthy ? 'Running / Ready' : '未知',
+      child: Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      ),
+    );
+  }
+}
+
+class _ResourceDetailSheet extends StatelessWidget {
+  final K8sResource resource;
+  final _ResourceType type;
+  const _ResourceDetailSheet({required this.resource, required this.type});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.4,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (ctx, scrollController) => Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(type.icon, color: _kK8sBlue),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      resource.name.isEmpty ? '（未命名）' : resource.name,
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  _StatusDot(healthy: resource.healthy, status: resource.status),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(type.label,
+                  style: const TextStyle(color: _kK8sBlue, fontSize: 13)),
+              const SizedBox(height: 20),
+              Expanded(
+                child: ListView(
+                  controller: scrollController,
+                  children: [
+                    _DetailRow(label: '類型', value: type.label),
+                    _DetailRow(label: 'Name', value: resource.name),
+                    _DetailRow(label: 'Namespace', value: resource.namespace),
+                    _DetailRow(label: 'Status', value: resource.status),
+                    const SizedBox(height: 12),
+                    const Text('Labels',
+                        style: TextStyle(color: Colors.white38, fontSize: 13)),
+                    const SizedBox(height: 6),
+                    if (resource.labels.isEmpty)
+                      const Text('（無）', style: TextStyle(color: Colors.white54))
+                    else
+                      ...resource.labels.entries.map(
+                        (e) => Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0D0E13),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.label_outline,
+                                    size: 14, color: _kK8sBlue),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    '${e.key}=${e.value}',
+                                    style: const TextStyle(
+                                        fontFamily: 'monospace', fontSize: 12),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    const Text('Logs',
+                        style: TextStyle(color: Colors.white38, fontSize: 13)),
+                    const SizedBox(height: 6),
+                    const Text(
+                      '（尚未接入；連接 cluster 之後可在此瀏覽 Pod / container 日誌）',
+                      style: TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('關閉'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _DetailRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 90, child: Text(label,
+              style: const TextStyle(color: Colors.white38))),
+          Expanded(
+            child: Text(
+              value.isEmpty ? '—' : value,
+              style: const TextStyle(
+                  color: Colors.white70, fontFamily: 'monospace'),
+            ),
           ),
         ],
       ),
@@ -42,44 +539,205 @@ class K8sScreen extends StatelessWidget {
   }
 }
 
-class _ArchitectureCard extends StatelessWidget {
-  final String title;
-  final List<String> points;
-  const _ArchitectureCard({required this.title, required this.points});
+// ── 連接 Cluster 設定位 ──────────────────────────────────────────────
+class _K8sConnectSheet extends StatefulWidget {
+  const _K8sConnectSheet();
+  @override
+  State<_K8sConnectSheet> createState() => _K8sConnectSheetState();
+}
+
+class _K8sConnectSheetState extends State<_K8sConnectSheet> {
+  late final TextEditingController _kubeconfigCtrl;
+  late final TextEditingController _serverCtrl;
+  late final TextEditingController _tokenCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _kubeconfigCtrl = TextEditingController(text: Config.kubeconfig);
+    _serverCtrl = TextEditingController(text: Config.k8sServer);
+    _tokenCtrl = TextEditingController(text: Config.k8sToken);
+  }
+
+  @override
+  void dispose() {
+    _kubeconfigCtrl.dispose();
+    _serverCtrl.dispose();
+    _tokenCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    await Config.saveK8s(
+      kubeconfig: _kubeconfigCtrl.text,
+      server: _serverCtrl.text,
+      token: _tokenCtrl.text,
+    );
+    await Config.loadK8s();
+    if (!mounted) return;
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Cluster 連線設定已儲存')),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF151820),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white12),
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          const SizedBox(height: 12),
-          ...points.map(
-            (p) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.circle, size: 8, color: Color(0xFF7C6CF0)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(p,
-                        style: const TextStyle(color: Colors.white70, height: 1.5)),
-                  ),
-                ],
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.cloud_done, color: _kK8sBlue),
+                SizedBox(width: 10),
+                Text('連接 Cluster',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              '用其中一種方式接入：匯入 kubeconfig，或輸入 cluster server + token。'
+              '設定會存去裝置（shared_preferences），之後用作連接 dashboard /api/k8s。',
+              style: TextStyle(color: Colors.white60, fontSize: 13, height: 1.5),
+            ),
+            const SizedBox(height: 16),
+            const Text('方式一：kubeconfig',
+                style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _kubeconfigCtrl,
+              maxLines: 6,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              decoration: const InputDecoration(
+                hintText: '貼上 kubeconfig YAML…',
+                border: OutlineInputBorder(),
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 20),
+            const Text('方式二：Server + Token',
+                style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _serverCtrl,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                labelText: 'Cluster Server IP / URL',
+                hintText: 'https://192.168.1.10:6443',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.dns_outlined, color: _kK8sBlue),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _tokenCtrl,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Token',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.key_outlined, color: _kK8sBlue),
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: _kK8sBlue),
+                onPressed: _save,
+                icon: const Icon(Icons.save_outlined),
+                label: const Text('儲存連線設定'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
+  }
+}
+
+// ── helper ───────────────────────────────────────────────────────────
+List<K8sResource> _extractResources(dynamic raw) {
+  List<dynamic> list;
+  if (raw is List) {
+    list = raw;
+  } else if (raw is Map) {
+    final items = raw['resources'] ?? raw['items'] ?? raw['data'];
+    list = items is List ? items : <dynamic>[];
+  } else {
+    list = <dynamic>[];
+  }
+  return list
+      .map(K8sResource.fromJson)
+      .where((r) => r.name.isNotEmpty)
+      .toList();
+}
+
+List<K8sResource> _demoResources(_ResourceType type) {
+  const ns = 'default';
+  switch (type.apiName) {
+    case 'deployments':
+      return const [
+        K8sResource(
+            name: 'web-frontend', namespace: ns, status: '2/2 Ready',
+            labels: {'app': 'web', 'tier': 'frontend'}, healthy: true),
+        K8sResource(
+            name: 'api-gateway', namespace: ns, status: '1/2 Ready',
+            labels: {'app': 'api'}, healthy: false),
+        K8sResource(
+            name: 'worker', namespace: 'batch', status: '3/3 Ready',
+            labels: {'app': 'worker'}, healthy: true),
+      ];
+    case 'pods':
+      return const [
+        K8sResource(
+            name: 'web-frontend-7b6f9c-4x2kq', namespace: ns,
+            status: 'Running', labels: {'app': 'web', 'pod-template-hash': '7b6f9c'},
+            healthy: true),
+        K8sResource(
+            name: 'api-gateway-55dfc-r8xm1', namespace: ns,
+            status: 'CrashLoopBackOff', labels: {'app': 'api'},
+            healthy: false),
+        K8sResource(
+            name: 'redis-0', namespace: 'cache', status: 'Running',
+            labels: {'app': 'redis'}, healthy: true),
+      ];
+    case 'services':
+      return const [
+        K8sResource(
+            name: 'web-frontend', namespace: ns, status: 'ClusterIP 10.96.0.10',
+            labels: {'app': 'web'}, healthy: true),
+        K8sResource(
+            name: 'db', namespace: 'data', status: 'ExternalName',
+            labels: {}, healthy: true),
+      ];
+    case 'statefulsets':
+      return const [
+        K8sResource(
+            name: 'redis', namespace: 'cache', status: '2/2 Ready',
+            labels: {'app': 'redis'}, healthy: true),
+      ];
+    case 'configmaps':
+      return const [
+        K8sResource(
+            name: 'app-config', namespace: ns, status: '1 map',
+            labels: {'app': 'config'}, healthy: true),
+      ];
+    case 'secrets':
+      return const [
+        K8sResource(
+            name: 'db-credentials', namespace: ns, status: 'Opaque',
+            labels: {}, healthy: true),
+      ];
+    default:
+      return const [];
   }
 }
