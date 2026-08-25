@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../services/api.dart';
 import '../services/config.dart';
+import 'pod_terminal_screen.dart';
 
 // ── Sci-fi HUD 配色（暗黑 + 霓虹青 / 霓虹紫 accent）──────────────────
 const Color _kNeonBg = Color(0xFF05070D); // 深空底
@@ -685,7 +686,6 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
   String? _message; // info / error / 未連接 cluster
   String? _yaml;
   String? _logs;
-  String? _exec;
 
   _ResourceType get type => widget.type;
   K8sResource get resource => widget.resource;
@@ -725,7 +725,6 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
         _activeYaml = false;
         _yaml = null;
         _logs = null;
-        _exec = null;
         _demoResult = false;
         _busy = false;
       });
@@ -741,7 +740,6 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
         setState(() {
           _yaml = _demoYaml();
           _logs = null;
-          _exec = null;
           _message = null;
           _activeYaml = true;
           _demoResult = true;
@@ -756,7 +754,6 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
       setState(() {
         _yaml = y is String ? y : '（無 YAML）';
         _logs = null;
-        _exec = null;
         _message = null;
         _activeYaml = true;
         _demoResult = false;
@@ -802,7 +799,6 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
         _message = '只有 Pod 有 logs';
         _activeYaml = false;
         _yaml = null;
-        _exec = null;
       });
       return;
     }
@@ -812,7 +808,6 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
         setState(() {
           _logs = _demoLogs();
           _yaml = null;
-          _exec = null;
           _message = null;
           _activeYaml = false;
           _demoResult = true;
@@ -827,7 +822,6 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
       setState(() {
         _logs = l is String ? l : '（無日誌）';
         _yaml = null;
-        _exec = null;
         _message = null;
         _activeYaml = false;
         _demoResult = false;
@@ -845,90 +839,14 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
 
   Future<void> _runExec() async {
     if (!_isPod) return; // 按鈕已禁用；雙重保險
-    final cmdCtrl = TextEditingController(text: 'ls -la');
-    final cmd = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: _kNeonBg,
-        title: const Text('▶ EXEC 命令',
-            style: TextStyle(
-                color: _kNeonCyan,
-                fontFamily: 'monospace',
-                letterSpacing: 1)),
-        content: TextField(
-          controller: cmdCtrl,
-          autofocus: true,
-          style: const TextStyle(fontFamily: 'monospace', color: _kCyanTerm),
-          decoration: InputDecoration(
-            labelText: '命令',
-            hintText: 'ls -la',
-            labelStyle: const TextStyle(color: _kNeonCyan),
-            enabledBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: _kNeonCyan.withOpacity(0.4))),
-            border: const OutlineInputBorder(
-                borderSide: BorderSide(color: _kNeonCyan)),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-                backgroundColor: _kNeonCyan, foregroundColor: Colors.black),
-            onPressed: () {
-              final t = cmdCtrl.text.trim();
-              Navigator.pop(ctx, t.isEmpty ? 'ls -la' : t);
-            },
-            child: const Text('執行', style: TextStyle(fontWeight: FontWeight.w700)),
-          ),
-        ],
+    if (widget.demo) return; // 示範模式無 terminal-server，唔開 terminal
+    // 全屏互動 Terminal（WS → kubectl exec）
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => PodTerminalScreen(
+        podName: resource.name,
+        namespace: resource.namespace,
       ),
-    );
-    cmdCtrl.dispose();
-    if (cmd == null) return;
-    setState(() => _busy = true);
-    try {
-      if (widget.demo) {
-        setState(() {
-          _exec = _demoExec(cmd);
-          _yaml = null;
-          _logs = null;
-          _message = null;
-          _activeYaml = false;
-          _demoResult = true;
-          _busy = false;
-        });
-        return;
-      }
-      final raw = await Api.post('/api/k8s/action', {
-        'op': 'exec',
-        'kind': type.label,
-        'name': resource.name,
-        'namespace': resource.namespace,
-        'cmd': cmd,
-      });
-      if (!mounted) return;
-      if (_guardFailure(raw, '執行')) return;
-      final out = raw is Map ? raw['output'] ?? raw['result'] ?? raw['stdout'] : null;
-      setState(() {
-        _exec = out is String ? out : '（無輸出）';
-        _yaml = null;
-        _logs = null;
-        _message = null;
-        _activeYaml = false;
-        _demoResult = false;
-        _busy = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _message = '執行失敗：$e';
-        _activeYaml = false;
-        _busy = false;
-      });
-    }
+    ));
   }
 
   // ── 示範（demo）假資料 —────────────────────────────────────────
@@ -964,17 +882,6 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
         '2026-08-25 10:00:11 INFO  GET /stats 200 4ms\n'
         '2026-08-25 10:00:12 INFO  worker tick processed 42\n'
         '2026-08-25 10:00:14 DEBUG connection pool size=4\n';
-  }
-
-  String _demoExec(String cmd) {
-    return '\$ $cmd\n'
-        'total 52\n'
-        'drwxr-xr-x 1 root root  4096 Aug 25 09:58 .\n'
-        'drwxr-xr-x 1 root root  4096 Aug 25 09:58 ..\n'
-        '-rw-r--r-- 1 root root    14 Aug 25 09:58 .env\n'
-        'drwxr-xr-x 2 root root  4096 Aug 25 09:58 config\n'
-        '-rwxr-xr-x 1 root root 28912 Aug 25 09:58 app\n'
-        'exit 0\n';
   }
 
   @override
@@ -1213,9 +1120,6 @@ class _ResourceDetailSheetState extends State<_ResourceDetailSheet> {
     }
     if (_logs != null) {
       return _terminalPanel('LOGS', _logs!, demo, textColor: _kGreenTerm);
-    }
-    if (_exec != null) {
-      return _terminalPanel('EXEC OUTPUT', _exec!, demo, textColor: _kCyanTerm);
     }
     // 預設提示
     return const Padding(
