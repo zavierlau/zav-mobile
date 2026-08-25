@@ -14,9 +14,11 @@ class Config {
       final b = p.getString(_kBaseUrl);
       final t = p.getString(_kToken);
       if (b != null && b.isNotEmpty) Api.baseUrl = b;
-      Api.token = t ?? '';
+      // Prefer persisted token; else fall back to a compile-time default injected
+      // via --dart-define=ZAV_TOKEN=... (so the secret isn't hardcoded in source).
+      Api.token = (t != null && t.isNotEmpty) ? t : (const String.fromEnvironment('ZAV_TOKEN', defaultValue: ''));
     } catch (_) {
-      // Storage unavailable (e.g. tests) — fall back to no-op.
+      Api.token = const String.fromEnvironment('ZAV_TOKEN', defaultValue: '');
     }
   }
 
