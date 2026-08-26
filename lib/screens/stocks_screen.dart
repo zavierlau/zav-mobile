@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/api.dart';
 import '../services/config.dart';
 import '../screens/settings_screen.dart';
+import '../screens/stock_detail_screen.dart';
 
 class StocksScreen extends StatefulWidget {
   const StocksScreen({super.key});
@@ -137,7 +138,21 @@ class _StocksScreenState extends State<StocksScreen> {
                   adding: _adding,
                   msg: _addMsg,
                 );
-                return _StockRow(stock: _stocks[i - 1], onDelete: () => _removeSymbol(_stocks[i - 1]));
+                return _StockRow(
+                  stock: _stocks[i - 1],
+                  onDelete: () => _removeSymbol(_stocks[i - 1]),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => StockDetailScreen(
+                        symbol: _stocks[i - 1].symbol,
+                        name: _stocks[i - 1].name.isNotEmpty
+                            ? _stocks[i - 1].name
+                            : _stocks[i - 1].symbol,
+                      ),
+                    ),
+                  ),
+                );
               },
             ),
     );
@@ -297,7 +312,8 @@ class _LoginGateState extends State<_LoginGate> {
 class _StockRow extends StatelessWidget {
   final Stock stock;
   final VoidCallback? onDelete;
-  const _StockRow({required this.stock, this.onDelete});
+  final VoidCallback? onTap;
+  const _StockRow({required this.stock, this.onDelete, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -305,6 +321,7 @@ class _StockRow extends StatelessWidget {
     final color = up ? const Color(0xFF26A69A) : const Color(0xFFEF5350);
     final label = stock.name.isNotEmpty ? stock.name : stock.symbol;
     return ListTile(
+      onTap: onTap,
       title: Text(label,
           style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
       subtitle: Text('${stock.symbol}  \$${_fmt(stock.price)}',
