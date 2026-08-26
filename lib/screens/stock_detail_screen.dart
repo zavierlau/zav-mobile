@@ -390,16 +390,9 @@ class _ChartCard extends StatelessWidget {
                 fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white70)),
           ),
           SizedBox(
-            height: 200,
+            height: 220,
             child: _LineChart(closes: closes, timestamps: timestamps, volumes: volumes),
           ),
-          if (volumes.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 56,
-              child: _VolumeBars(closes: closes, volumes: volumes),
-            ),
-          ],
         ],
       ),
     );
@@ -492,52 +485,6 @@ class _LineChart extends StatelessWidget {
               color: const Color(0xFF00E5FF).withOpacity(0.06),
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _VolumeBars extends StatelessWidget {
-  final List<num> closes;
-  final List<num> volumes;
-  const _VolumeBars({required this.closes, required this.volumes});
-
-  @override
-  Widget build(BuildContext context) {
-    if (volumes.isEmpty) return const SizedBox.shrink();
-    final vol = volumes.take(closes.length).toList();
-    final maxV = vol.map((v) => v.toDouble()).reduce((a, b) => a > b ? a : b);
-    final up = const Color(0xFF00E676).withOpacity(0.7);  // neon green
-    final down = const Color(0xFFEF5350).withOpacity(0.7);
-    final grpW = (vol.length > 80) ? 2.0 : 4.0;
-    return BarChart(
-      BarChartData(
-        alignment: BarChartAlignment.spaceAround,
-        maxY: maxV == 0 ? 1 : maxV,
-        barTouchData: BarTouchData(enabled: false),
-        gridData: const FlGridData(show: false),
-        borderData: FlBorderData(show: false),
-        titlesData: const FlTitlesData(
-          leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        ),
-        barGroups: [
-          for (int i = 0; i < vol.length; i++)
-            BarChartGroupData(
-              x: i,
-              barRods: [
-                BarChartRodData(
-                  toY: vol[i].toDouble(),
-                  width: grpW,
-                  color: (i > 0 && closes[i] >= closes[i - 1]) || (i == 0 && closes.first >= 0)
-                      ? up : down,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
-                ),
-              ],
-            ),
         ],
       ),
     );
