@@ -120,13 +120,26 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
 
   void _parseTech(dynamic raw) {
     final src = _unwrap(raw);
-    final m = src is Map ? src.cast<String, dynamic>() : const <String, dynamic>{};
-    _rsi = m['rsi'] != null ? _num(m['rsi']) : null;
+    // /api/tech returns {symbols:[{symbol,rsi14,sma20,sma50,macd_hist,signals}]} —
+    // it runs the WHOLE watchlist, so pick our own symbol out of the array.
+    dynamic mine;
+    final target = widget.symbol.toUpperCase();
+    if (src is Map) {
+      final arr = src['symbols'];
+      if (arr is List) {
+        for (final e in arr) {
+          if (e is! Map) continue;
+          if ('${e['symbol'] ?? ''}'.toUpperCase() == target) { mine = e.cast<String, dynamic>(); break; }
+        }
+      }
+    }
+    final Map<String, dynamic> m = (mine is Map) ? Map<String, dynamic>.from(mine) : <String, dynamic>{};
+    _rsi = m['rsi14'] != null ? _num(m['rsi14']) : (m['rsi'] != null ? _num(m['rsi']) : null);
     _sma20 = m['sma20'] != null ? _num(m['sma20'])
         : (m['sma_20'] != null ? _num(m['sma_20']) : null);
     _sma50 = m['sma50'] != null ? _num(m['sma50'])
         : (m['sma_50'] != null ? _num(m['sma_50']) : null);
-    _macd = m['macd'] != null ? _num(m['macd']) : null;
+    _macd = m['macd_hist'] != null ? _num(m['macd_hist']) : (m['macd'] != null ? _num(m['macd']) : null);
     _macdSignal = m['macd_signal'] != null ? _num(m['macd_signal'])
         : (m['signal'] != null ? _num(m['signal']) : null);
     final sig = m['signals'];
@@ -156,9 +169,9 @@ class _StockDetailScreenState extends State<StockDetailScreen> {
       _chg = (m['change_pct'] ?? m['chg']) != null
           ? _num(m['change_pct'] ?? m['chg'])
           : _chg;
-      _wkHigh = _numOrNull(m, ['week52_high', 'week_high', 'high_52w', '52w_high']);
-      _wkLow = _numOrNull(m, ['week52_low', 'week_low', 'low_52w', '52w_low']);
-      _volume = _numOrNull(m, ['volume', 'vol']);
+      _wkHigh = _numOrNull(m, ['fifty_two_week_high', 'fiftyTwoWeekHigh', 'week52_high', '52w_high', 'week_high']);
+      _wkLow = _numOrNull(m, ['fifty_two_week_low', 'fiftyTwoWeekLow', 'week52_low', '52w_low', 'week_low']);
+      _volume = _numOrNull(m, ['regular_market_volume', 'regularMarketVolume', 'volume', 'vol']);
       break;
     }
   }
